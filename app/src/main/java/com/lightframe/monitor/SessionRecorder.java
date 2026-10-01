@@ -1,28 +1,87 @@
 package com.lightframe.monitor;
-import android.os.Build;import org.json.*;import java.io.*;import java.nio.charset.StandardCharsets;import java.text.SimpleDateFormat;import java.util.*;
-public final class SessionRecorder implements Closeable{
+
+import android.os.Build;
+import org.json.*;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+public final class SessionRecorder implements Closeable {
  public static final String[] COLUMNS;
- static{ArrayList<String> a=new ArrayList<>(Arrays.asList("elapsed_s","unix_ms"));Collections.addAll(a,Config.METRICS);Collections.addAll(a,"cpuMHz","thermalStatus","charging","layer","frameStatus","frameAvailable","frameProbeCount","frameCandidateCount","frameProbeFailures","gpuLoadStatus","gpuFrequencyStatus","cpuTemperatureStatus","gpuTemperatureStatus","socTemperatureStatus","thermalServiceStatus","thermalServiceSource","thermalServiceReadNs","thermalServiceAgeMs","paused","longFramesEstimate","bigLongFramesEstimate");for(int i=0;i<16;i++)a.add("cpu"+i+"MHz");COLUMNS=a.toArray(new String[0]);}
- public final File dir;public final FrameStats frames=new FrameStats();public final long startNs=System.nanoTime(),startMs=System.currentTimeMillis();public int rows;private long lastFrame,lastFlush,lastSummary;private String layer="";private final BufferedWriter samples,frameFile;private final JSONObject metadata=new JSONObject();private final Map<String,Stats> stats=new LinkedHashMap<>();private boolean closed;
+ static{
+  ArrayList<String> a=new ArrayList<>(Arrays.asList("elapsed_s","unix_ms"));Collections.addAll(a,Config.METRICS);
+  Collections.addAll(a,"cpuMHz","thermalStatus","charging","layer","frameStatus","frameAvailable","frameWindowReady","frameDataAgeMs","frameWindowSpanMs","captureGapCount","foregroundPackage","foregroundStatus","frameSourceVerified","frameProbeCount","frameCandidateCount","frameProbeFailures","gpuLoadStatus","gpuFrequencyStatus","cpuTemperatureStatus","gpuTemperatureStatus","socTemperatureStatus","thermalServiceStatus","thermalServiceSource","thermalServiceReadNs","thermalServiceAgeMs","paused","longFramesEstimate","bigLongFramesEstimate");
+  for(int i=0;i<16;i++)a.add("cpu"+i+"MHz");COLUMNS=a.toArray(new String[0]);
+ }
+ public final File dir;
+ public final FrameStats frames=new FrameStats(false);
+ public final long startNs=System.nanoTime(),startMs=System.currentTimeMillis();
+ public int rows;
+ private long lastFrame,lastFlush,segment;
+ private String layer="";
+ private final BufferedWriter samples,frameFile;
+ private final JSONObject metadata=new JSONObject();
+ private boolean closed;
  public SessionRecorder(File root,Config c,Backend backend)throws Exception{
   dir=new File(root,new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date())+"_"+UUID.randomUUID().toString().substring(0,6));if(!dir.mkdirs())throw new IOException("创建记录目录失败");
-  samples=writer(new File(dir,"samples.csv"));frameFile=writer(new File(dir,"frames.csv"));samples.write("\uFEFF"+CsvIndex.encode(COLUMNS)+"\n");frameFile.write("\uFEFFelapsed_s,present_ns,interval_ms,long_frame_estimate,big_long_frame_estimate\n");
-  metadata.put("version",Config.VERSION);metadata.put("title",c.title);metadata.put("package",c.packageName);metadata.put("device",Build.MANUFACTURER+" "+Build.MODEL);metadata.put("android",Build.VERSION.RELEASE);metadata.put("backend",backend.name);metadata.put("uid",backend.uid);metadata.put("startedUnixMs",startMs);metadata.put("config",c.json());metadata.put("definitions","FPS: SurfaceFlinger 呈现时间近 1 秒窗口；CPU/RAM: 系统；功率: 电池侧 |电流×电压|；长帧: >1.5 倍目标帧预算估算，严重长帧 >3 倍；1%/0.1% Low: 最慢帧时间的均值倒数，0.5ms 直方图近似。空值代表未取得，数据距今标记异步指标年龄。RSS 含共享页，轻帧开销不含 Shizuku 管理器、系统采集处理和 GPU 绘制。网络汇总可能重复计入 VPN。与商业工具的口径不等同。");
-  frames.discontinuity(startNs);summary("recording","");
+  samples=writer(new File(dir,"samples.csv"));frameFile=writer(new File(dir,"frames.csv"));samples.write("\uFEFF"+CsvIndex.encode(COLUMNS)+"\n");
+  frameFile.write("\uFEFFelapsed_s,present_ns,interval_ms,long_frame_estimate,big_long_frame_estimate,segment,layer,target_fps\n");
+  metadata.put("version",Config.VERSION);metadata.put("title",c.title);metadata.put("package",c.packageName);metadata.put("device",Build.MANUFACTURER+" "+Build.MODEL);metadata.put("android",Build.VERSION.RELEASE);metadata.put("backend",backend.name);metadata.put("uid",backend.uid);metadata.put("startedUnixMs",startMs);metadata.put("targetFps",c.targetFps);metadata.put("config",c.json());
+  metadata.put("definitions","录制时保存原始采样和实际呈现帧，仅计算约 1 秒实时 FPS；停止后流式计算全部统计。CPU/RAM: 系统；功率: 电池侧 |电流×电压|；长帧: >1.5 倍目标帧预算估算，严重长帧 >3 倍；1%/0.1% Low: 最慢帧时间均值的倒数，4096ms 内 0.5ms 分桶，以上对数分桶近似。暂停、切换来源和采集缺口不连接成帧间隔。空值代表未取得；数据距今标记异步指标年龄。RSS 含共享页；开销不含 Shizuku 管理器、系统采集处理和 GPU 绘制。网络汇总可能重复计入 VPN。与商业工具的口径不等同。");
+  metadata.put("analysisStatus","pending");frames.discontinuity(startNs);SessionAnalysis.writeAtomic(dir,"metadata.json",metadata);summary("recording","");
  }
- private static BufferedWriter writer(File f)throws IOException{return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f),StandardCharsets.UTF_8),32768);}
+ private static BufferedWriter writer(File file)throws IOException{return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file),StandardCharsets.UTF_8),32768);}
  public synchronized JSONObject append(JSONObject sample,JSONArray present,long now,Config c)throws Exception{
-  if(closed)throw new IOException("记录已关闭");String current=sample.optString("layer","");if(frames.updateSource(current,now)){lastFrame=0;layer=current;}sample.put("layer",layer);
-  if(present!=null)for(int i=0;i<present.length();i++){long p=present.optLong(i);if(p>now+100_000_000L)continue;if(frames.add(p,c.targetFps)){double ms=lastFrame==0?Double.NaN:(p-lastFrame)/1e6;frameFile.write(CsvIndex.encode(new Object[]{Numbers.display((p-startNs)/1e9,6),p,Double.isFinite(ms)?Numbers.display(ms,6):"",Double.isFinite(ms)&&ms>1500d/c.targetFps,Double.isFinite(ms)&&ms>3000d/c.targetFps})+"\n");lastFrame=p;}}
+  if(closed)throw new IOException("记录已关闭");String current=sample.optString("layer","");
+  if(frames.updateSource(current,now)){lastFrame=0;segment++;layer=current;}sample.put("layer",layer);
+  boolean captureGap=false;
+  if(present!=null){
+   long oldest=Long.MAX_VALUE,newest=0;int valid=0;
+   for(int i=0;i<present.length();i++){long p=present.optLong(i);if(p>0&&p<=now+100_000_000L){oldest=Math.min(oldest,p);newest=Math.max(newest,p);valid++;}}
+   if(valid>0&&frames.beginBatch(oldest,newest,valid)){lastFrame=0;segment++;captureGap=true;}
+   for(int i=0;i<present.length();i++){
+    long p=present.optLong(i);if(p>now+100_000_000L)continue;
+    if(frames.add(p,c.targetFps)){
+     double ms=lastFrame==0?Double.NaN:(p-lastFrame)/1e6;
+     frameFile.write(CsvIndex.encode(new Object[]{(p-startNs)/1e9,p,Double.isFinite(ms)?ms:"","","",segment,layer,c.targetFps})+"\n");lastFrame=p;
+    }
+   }
+  }
   boolean ready=c.frames&&!current.isEmpty()&&present!=null&&present.length()>0&&sample.optBoolean("frameAvailable",true);
-  CoreSampler.put(sample,"fps",ready?frames.fps(now):Double.NaN);CoreSampler.put(sample,"frameMs",ready?frames.frameMs():Double.NaN);sample.put("longFramesEstimate",frames.longFrames);sample.put("bigLongFramesEstimate",frames.bigLongFrames);sample.put("paused",false);writeRow(sample,now);
-  if(now-lastFlush>2_000_000_000L){samples.flush();frameFile.flush();lastFlush=now;}if(now-lastSummary>10_000_000_000L){summary("recording","");lastSummary=now;}return sample;
+  SessionAnalysis.putFinite(sample,"fps",ready?frames.fps(now):Double.NaN);SessionAnalysis.putFinite(sample,"frameMs",ready?frames.frameMs(now):Double.NaN);
+  boolean windowReady=ready&&frames.windowReady(now);sample.put("frameWindowReady",windowReady);
+  if(ready&&!windowReady)sample.put("frameStatus",captureGap?"帧缓冲未衔接，正在重建窗口；可减小帧采样间隔":"正在收集完整呈现窗口（约1秒）");
+  SessionAnalysis.putFinite(sample,"frameDataAgeMs",ready?frames.frameDataAgeMs(now):Double.NaN);SessionAnalysis.putFinite(sample,"frameWindowSpanMs",ready?frames.windowSpanMs():Double.NaN);sample.put("captureGapCount",frames.captureGapCount);
+  sample.put("longFramesEstimate",JSONObject.NULL);sample.put("bigLongFramesEstimate",JSONObject.NULL);sample.put("paused",false);writeRow(sample,now);
+  if(now-lastFlush>2_000_000_000L){samples.flush();frameFile.flush();lastFlush=now;}return sample;
  }
- private void writeRow(JSONObject j,long now)throws Exception{j.put("elapsed_s",(now-startNs)/1e9);j.put("unix_ms",System.currentTimeMillis());Object[] row=new Object[COLUMNS.length];for(int i=0;i<row.length;i++){Object v=j.opt(COLUMNS[i]);row[i]=v==null||v==JSONObject.NULL?"":v instanceof Number?Numbers.display(((Number)v).doubleValue(),COLUMNS[i].equals("unix_ms")?0:6):v;}samples.write(CsvIndex.encode(row)+"\n");rows++;if(!j.optBoolean("paused"))for(String key:Config.METRICS){double v=j.optDouble(key,Double.NaN);if(Double.isFinite(v))stats.computeIfAbsent(key,k->new Stats(k.equals("fps"))).add(v);}}
- public synchronized void pause(String why)throws Exception{long now=System.nanoTime();frames.discontinuity(now);lastFrame=0;JSONObject p=new JSONObject();p.put("paused",true);p.put("frameStatus",why);writeRow(p,now);samples.flush();frameFile.flush();}
- public synchronized void resume(){frames.discontinuity(System.nanoTime());lastFrame=0;}
- public synchronized void summary(String status,String error)throws Exception{metadata.put("status",status);metadata.put("error",error);metadata.put("samples",rows);metadata.put("durationSeconds",(System.nanoTime()-startNs)/1e9);metadata.put("capturedIntervals",frames.count);CoreSampler.put(metadata,"capturedFrameAverageFps",frames.average());CoreSampler.put(metadata,"low1Pct",frames.low(.01));CoreSampler.put(metadata,"low01Pct",frames.low(.001));CoreSampler.put(metadata,"frameTimeP95Ms",frames.percentile(.95));CoreSampler.put(metadata,"frameTimeP99Ms",frames.percentile(.99));metadata.put("longFramesEstimate",frames.longFrames);metadata.put("bigLongFramesEstimate",frames.bigLongFrames);metadata.put("layer",layer);JSONObject st=new JSONObject();for(Map.Entry<String,Stats> e:stats.entrySet())st.put(e.getKey(),e.getValue().json());metadata.put("statistics",st);File tmp=new File(dir,"summary.tmp");try(Writer w=new OutputStreamWriter(new FileOutputStream(tmp),StandardCharsets.UTF_8)){w.write(metadata.toString(2));}if(!tmp.renameTo(new File(dir,"summary.json")))throw new IOException("摘要写入失败");}
- public synchronized void finish(String error)throws Exception{if(closed)return;try{samples.flush();frameFile.flush();summary(error.isEmpty()?"complete":"error",error);}finally{closed=true;samples.close();frameFile.close();}}
+ private void writeRow(JSONObject json,long now)throws Exception{
+  json.put("elapsed_s",(now-startNs)/1e9);json.put("unix_ms",System.currentTimeMillis());Object[] row=new Object[COLUMNS.length];
+  for(int i=0;i<row.length;i++){Object value=json.opt(COLUMNS[i]);row[i]=value==null||value==JSONObject.NULL||value instanceof Number&&!Double.isFinite(((Number)value).doubleValue())?"":value;}
+  samples.write(CsvIndex.encode(row)+"\n");rows++;
+ }
+ public synchronized void pause(String why)throws Exception{
+  long now=System.nanoTime();frames.discontinuity(now);lastFrame=0;segment++;JSONObject paused=new JSONObject();paused.put("paused",true);paused.put("frameStatus",why);writeRow(paused,now);samples.flush();frameFile.flush();
+ }
+ public synchronized void resume(){frames.discontinuity(System.nanoTime());lastFrame=0;segment++;}
+ /** Only lightweight metadata is written while capture is active. */
+ public synchronized void summary(String status,String error)throws Exception{
+  metadata.put("status",status);metadata.put("error",error==null?"":error);metadata.put("samples",rows);metadata.put("durationSeconds",(System.nanoTime()-startNs)/1e9);metadata.put("layer",layer);metadata.put("captureGapCount",frames.captureGapCount);metadata.put("statistics",new JSONObject());
+  for(String key:new String[]{"capturedIntervals","capturedFrameAverageFps","low1Pct","low01Pct","frameTimeP95Ms","frameTimeP99Ms","longFramesEstimate","bigLongFramesEstimate"})metadata.put(key,JSONObject.NULL);
+  SessionAnalysis.writeAtomic(dir,"summary.json",metadata);
+ }
+ /** Close raw files first; expensive statistics are explicitly deferred to analyze(). */
+ public synchronized void finish(String error)throws Exception{
+  if(closed)return;closed=true;IOException failure=null;
+  try{samples.close();}catch(IOException e){failure=e;}try{frameFile.close();}catch(IOException e){if(failure==null)failure=e;else failure.addSuppressed(e);}
+  String captureError=error==null?"":error;if(failure!=null)captureError+=(captureError.isEmpty()?"":"; ")+failure.toString();
+  metadata.put("captureStatus",captureError.isEmpty()?"complete":"error");metadata.put("analysisStatus","pending");metadata.put("stoppedUnixMs",System.currentTimeMillis());summary("analyzing",captureError);
+  if(failure!=null)throw failure;
+ }
+ public JSONObject analyze(SessionAnalysis.Progress progress)throws Exception{
+  JSONObject seed;synchronized(this){if(!closed)throw new IOException("记录仍在采集，无法分析");seed=new JSONObject(metadata.toString());}
+  return SessionAnalysis.analyze(dir,seed,progress);
+ }
  public void close()throws IOException{try{finish("");}catch(Exception e){throw new IOException(e);}}
- private static final class Stats{long n;double mean,m2,min=Double.POSITIVE_INFINITY,max=Double.NEGATIVE_INFINITY;final long[] histogram;Stats(boolean fps){histogram=fps?new long[8192]:null;}void add(double v){n++;double d=v-mean;mean+=d/n;m2+=d*(v-mean);min=Math.min(min,v);max=Math.max(max,v);if(histogram!=null)histogram[(int)Math.max(0,Math.min(8191,v*2))]++;}double percentile(double f){long rank=Math.max(1,(long)Math.ceil(n*f)),seen=0;for(int i=0;i<histogram.length;i++)if((seen+=histogram[i])>=rank)return (i+.5)/2;return Double.NaN;}JSONObject json()throws JSONException{JSONObject j=new JSONObject();j.put("count",n);j.put("min",min);j.put("avg",mean);j.put("max",max);j.put("stdDev",n>1?Math.sqrt(m2/(n-1)):0);if(histogram!=null){j.put("p1",percentile(.01));j.put("p5",percentile(.05));j.put("percentileBinFps",.5);}return j;}}
 }

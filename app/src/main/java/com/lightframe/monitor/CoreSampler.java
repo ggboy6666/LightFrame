@@ -13,15 +13,18 @@ public final class CoreSampler implements Closeable {
  private static final String GED_MODULE="/sys/module/ged/parameters/",GED_LOAD=GED_MODULE+"gpu_loading",GED_ENABLE=GED_MODULE+"gpu_dvfs_enable";
  private final Map<String,RandomAccessFile> nodes=new LinkedHashMap<>();
  private final Map<String,String> errors=new LinkedHashMap<>();
+ private final NodeRetry retries=new NodeRetry();private boolean forceNodeReads;
+ private final ForegroundTask foreground=new ForegroundTask();
  private final List<String> policies=new ArrayList<>(),cpuTemps=new ArrayList<>(),gpuTemps=new ArrayList<>(),socTemps=new ArrayList<>();
  private final List<String> gpuFreqs=new ArrayList<>(),gpuLoads=new ArrayList<>();
  private final ExecutorService dumps=Executors.newSingleThreadExecutor();
  private long[] lastCpu,lastNet;private long lastNetNs,lastLayerScan,lastFrameError;private String selectedLayer="",lastFilter="",lastManual="",frameDetail="尚未读取帧时间";private IBinder surface,thermalService;private FrameDiscovery frameDiscovery;
  private String thermalDump="",thermalError="";private long thermalDumpNs;
+ private ThermalSnapshot cachedThermal=ThermalSnapshot.parse("");
  private JSONObject lastFrameSample=new JSONObject();
  private final Map<String,String> latencySnapshots=new LinkedHashMap<>();
  public CoreSampler(){discover();}
- private String read(String path){if(!Numbers.safeNode(path))return null;try{RandomAccessFile f=nodes.get(path);if(f==null){f=new RandomAccessFile(path,"r");nodes.put(path,f);}f.seek(0);byte[] b=new byte[path.startsWith("/proc/")?32768:4096];int n=f.read(b);errors.remove(path);return n<0?"":new String(b,0,n,StandardCharsets.UTF_8);}catch(Exception e){errors.put(path,e.getClass().getSimpleName()+": "+e.getMessage());return null;}}
+ private String read(String path){if(!Numbers.safeNode(path)||!forceNodeReads&&!retries.allowed(path,System.nanoTime()))return null;try{RandomAccessFile f=nodes.get(path);if(f==null){f=new RandomAccessFile(path,"r");nodes.put(path,f);}f.seek(0);byte[] b=new byte[path.startsWith("/proc/")?32768:4096];int n=f.read(b);errors.remove(path);retries.succeeded(path);return n<0?"":new String(b,0,n,StandardCharsets.UTF_8);}catch(Exception e){errors.put(path,e.getClass().getSimpleName()+": "+e.getMessage());retries.failed(path,System.nanoTime());RandomAccessFile failed=nodes.remove(path);if(failed!=null)try{failed.close();}catch(Exception ignored){}return null;}}
  private File[] children(String p){File[] a=new File(p).listFiles();if(a==null)return new File[0];Arrays.sort(a,Comparator.comparing(File::getName));return a;}
  private void discover(){
   for(File f:children("/sys/devices/system/cpu/cpufreq"))if(f.getName().startsWith("policy")&&policies.size()<16){String p=f+"/scaling_cur_freq";if(read(p)==null)p=f+"/cpuinfo_cur_freq";policies.add(p);}
@@ -68,9 +71,9 @@ public final class CoreSampler implements Closeable {
   double gpu=Numbers.safeNode(path)?Numbers.temp(read(path)):thermal(gpuTemps);
   boolean missing=!Double.isFinite(cpu)||!Double.isFinite(gpu)||!Double.isFinite(soc);
   if((missing||diagnose)&&(diagnose||thermalDumpNs==0||now-thermalDumpNs>=5_000_000_000L)){
-   try{thermalDump=serviceDump("thermalservice");thermalError="";}catch(Exception e){thermalDump="";thermalError=e.getClass().getSimpleName()+": "+e.getMessage();}thermalDumpNs=System.nanoTime();
+   try{thermalDump=serviceDump("thermalservice");thermalError="";}catch(Exception e){thermalDump="";thermalError=e.getClass().getSimpleName()+": "+e.getMessage();}thermalDumpNs=System.nanoTime();cachedThermal=ThermalSnapshot.parse(thermalDump);
   }
-  ThermalSnapshot snapshot=ThermalSnapshot.parse(thermalDump);
+  ThermalSnapshot snapshot=cachedThermal;
   long readAgeMs=Math.max(0,(System.nanoTime()-thermalDumpNs)/1_000_000L);
   String source=(snapshot.source.equals("current")?"系统温度服务":"系统温度服务缓存（原始更新时间未提供）")+" · 读取于 "+Numbers.display(readAgeMs/1000d,1)+" 秒前";
   String unavailable=snapshot.permissionDenied?"系统拒绝温度读取":!thermalError.isEmpty()?"温度服务读取失败":"系统未报告此类芯片温度";
@@ -97,7 +100,15 @@ public final class CoreSampler implements Closeable {
  private void frames(JSONObject o,JSONObject cfg,long now)throws JSONException{
   o.put("present",new JSONArray());o.put("frameAvailable",false);o.put("layer","");
   if(Process.myUid()!=0&&Process.myUid()!=2000){o.put("frameStatus","FPS 需要已授权的 Shizuku / Root");return;}
-  String manual=SurfaceLayers.name(cfg.optString("layer",""));String filter=cfg.optString("package","");try{
+  String manual=SurfaceLayers.name(cfg.optString("layer",""));String filter=cfg.optString("package","").trim();
+  if(filter.isEmpty()&&manual.isEmpty()){
+   filter=foreground.read(now);o.put("foregroundPackage",filter);o.put("foregroundStatus",foreground.status);if(!foreground.error.isEmpty())o.put("foregroundError",foreground.error);
+   if(filter.isEmpty()||filter.equals("com.lightframe.monitor")||filter.equals("com.android.systemui")){
+    selectedLayer="";frameDiscovery=null;lastLayerScan=lastFrameError=0;lastFilter=filter;
+    o.put("frameStatus",filter.isEmpty()?foreground.status:"当前前台为轻帧或系统界面，等待目标应用");return;
+   }
+  }
+  o.put("frameSourceVerified",!filter.isEmpty()||!manual.isEmpty());try{
    if(!filter.equals(lastFilter)||!manual.equals(lastManual)){selectedLayer="";frameDiscovery=null;lastLayerScan=lastFrameError=0;lastFilter=filter;lastManual=manual;}
    if(lastFrameError>0&&now-lastFrameError<5_000_000_000L){o.put("frameStatus",frameDetail+"；稍后重试");return;}
    long[] t=null;
@@ -108,10 +119,6 @@ public final class CoreSampler implements Closeable {
      if(!manual.isEmpty()){frameDetail="指定图层没有返回最近的帧时间";o.put("frameStatus",frameDetail);lastFrameError=now;return;}
      selectedLayer="";t=null;frameDiscovery=null;lastLayerScan=0;
     }
-   }
-   if(!selectedLayer.isEmpty()&&manual.isEmpty()){
-    if(frameDiscovery==null&&now-lastLayerScan>=5_000_000_000L){lastLayerScan=now;List<String> candidates=SurfaceLayers.rankDump(dump("--list"),filter);for(Iterator<String> it=candidates.iterator();it.hasNext();)if(!useful(it.next(),""))it.remove();frameDiscovery=new FrameDiscovery(candidates);}
-    if(frameDiscovery!=null){FrameDiscovery.Result other=frameDiscovery.advance(this::readPresent,System.nanoTime(),3,150_000_000L);o.put("frameProbeCount",frameDiscovery.cursor);o.put("frameCandidateCount",frameDiscovery.candidates.size());o.put("frameProbeFailures",frameDiscovery.failures);if(other!=null&&other.present[other.present.length-1]>t[t.length-1]){selectedLayer=other.layer;t=other.present;}if(frameDiscovery.finished()){frameDiscovery=null;lastLayerScan=System.nanoTime();}}
    }
    if(selectedLayer.isEmpty()){
     if(frameDiscovery==null&&(lastLayerScan==0||now-lastLayerScan>=5_000_000_000L)){
@@ -130,6 +137,10 @@ public final class CoreSampler implements Closeable {
   }catch(Exception e){lastFrameError=now;selectedLayer="";frameDiscovery=null;frameDetail="帧接口读取失败："+e.getClass().getSimpleName()+" "+e.getMessage();o.put("frameStatus",frameDetail);}
  }
  public synchronized JSONObject handle(JSONObject req)throws Exception{
+  forceNodeReads=req.optString("op","sample").equals("diagnose");
+  try{return collect(req);}finally{forceNodeReads=false;}
+ }
+ private JSONObject collect(JSONObject req)throws Exception{
   String op=req.optString("op","sample");JSONObject cfg=req.optJSONObject("config");if(cfg==null)cfg=new JSONObject();JSONObject o=new JSONObject();long now=System.nanoTime();o.put("uid",Process.myUid());o.put("nowNs",now);
   if(op.equals("layers")){JSONArray a=new JSONArray();for(String l:layerList())a.put(l);o.put("layers",a);return o;}
   if(req.optBoolean("hardware",true)||op.equals("diagnose")){

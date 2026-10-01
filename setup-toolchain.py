@@ -71,6 +71,12 @@ if not manager.exists():
 
 get('https://repo.maven.apache.org/maven2/org/eclipse/jdt/ecj/3.38.0/ecj-3.38.0.jar',
     tc / 'ecj.jar')
+test_deps = tc / 'test-deps'
+test_deps.mkdir(parents=True, exist_ok=True)
+# JVM tests use Android-compatible JSON; this jar is not packaged in the APK.
+get('https://repo.maven.apache.org/maven2/com/vaadin/external/google/android-json/'
+    '0.0.20131108.vaadin1/android-json-0.0.20131108.vaadin1.jar',
+    test_deps / 'android-json-0.0.20131108.vaadin1.jar')
 for name in ['api', 'provider', 'aidl', 'shared']:
     archive = deps / (name + '.aar')
     get('https://repo.maven.apache.org/maven2/dev/rikka/shizuku/' + name
