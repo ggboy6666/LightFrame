@@ -2,14 +2,24 @@ name: 发布轻帧测试版
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '已有版本标签，例如 v0.2.4；补跑该标签的测试、构建和发布'
+        required: true
+        type: string
 permissions:
   contents: write
 jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: microsoft
@@ -18,8 +28,6 @@ jobs:
         with:
           python-version: '3.13'
       - name: 核对标签与版本
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           python - <<'PY'
           import os,re
@@ -38,7 +46,6 @@ jobs:
       - name: 发布安装包、源码与校验摘要
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           cd ../dist
           sha256sum *.apk *-source.zip > SHA256SUMS.txt
@@ -47,4 +54,4 @@ jobs:
             echo "该版本已发布，保留现有安装包与源码。"
             exit 0
           fi
-          gh release create "$RELEASE_TAG" *.apk *-source.zip SHA256SUMS.txt --verify-tag --title "LightFrame $RELEASE_TAG" --notes-file release-notes.md --repo "$GITHUB_REPOSITORY"
+          gh release create "$RELEASE_TAG" *.apk *-source.zip SHA256SUMS.txt --verify-tag --title "LightFrame $RELEASE_TAG" --notes-file release-notes.md --repo "$GITHUB_REPOSITORY" --prerelease --latest=false
