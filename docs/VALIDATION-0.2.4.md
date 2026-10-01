@@ -37,3 +37,13 @@
 ## Git 与反馈范围
 
 用户指定当前 GitHub 账号 ggboy6666、新建公开 LightFrame 仓库，每月 1 日统计评论。月度统计工作流放在仓库，由 GitHub 执行；APK 不包含评论收集、联网反馈或自动机型调查功能。报告只用于组织后续复测和适配，用户报告不自动升级为已验证兼容。
+
+## 公开发布验证
+
+公开仓库：[ggboy6666/LightFrame](https://github.com/ggboy6666/LightFrame)。`v0.2.0` 至 `v0.2.4` 均有独立源代码标签和公开测试版 Release，资产包括 APK、源码 ZIP 和 SHA256SUMS.txt。0.2.0 保留用户原始下载 APK；0.2.1–0.2.3 使用此前本机构建产物。
+
+0.2.4 从 `v0.2.4` 标签源码在 GitHub Ubuntu / Microsoft Java 21 / Android SDK 35 构建并发布，[首次运行](https://github.com/ggboy6666/LightFrame/actions/runs/36886476127)成功。已重新下载公开资产，检查摘要、CRC、APK 版本码 6、v2/v3 签名及对齐；签名证书与旧版一致。云端 APK 152,331 字节，SHA-256 `97f943a5c30014db2184fb29542d99f2f7fff6cfa3f0a6debad49fbe05e89224`。Windows / Linux 封装大小与整体摘要不同，但两份 APK 的所有 ZIP 成员逐字节一致；两份源码 ZIP 的全部内容也一致。
+
+反馈脚本另有 37 项离线 unittest 通过。[每月统计首次运行](https://github.com/ggboy6666/LightFrame/actions/runs/36886311644)成功，实际读取新建仓库后生成 `docs/feedback/2026-09.md` 和两份 CSV，当前各项公开反馈为 0。月度任务为 active，UTC `0 12 1 * *` 对应北京时间每月 1 日 20:00。报告不推断此前私有聊天为公开评论，未把用户反馈称为已完成真机适配。
+
+首次导入五个历史标签时未产生 push 工作流事件，因为 GitHub 不为一次推送超过三个标签创建事件。默认分支补充按已有标签手动重跑入口后，实际完成上述构建发布；标签源码未改写。今后逐个推送版本标签自动发布，也可按原标签补跑。APK 内没有加入反馈收集或联网功能。

@@ -89,6 +89,8 @@ python3 build-local.py
 
 ## 版本发布与设备反馈
 
-公开仓库为 [ggboy6666/LightFrame](https://github.com/ggboy6666/LightFrame)，安装包及源码在 [Releases](https://github.com/ggboy6666/LightFrame/releases)。既有版本使用独立版本标签；后续提交版本修改并推送对应 `vX.Y.Z` 标签，会执行测试、构建及发布工作流。
+公开仓库为 [ggboy6666/LightFrame](https://github.com/ggboy6666/LightFrame)，安装包及源码在 [Releases](https://github.com/ggboy6666/LightFrame/releases)。既有版本使用独立版本标签；后续提交版本修改并逐个推送对应 `vX.Y.Z` 标签，会执行测试、构建及发布工作流。也可在 Actions 的发布流程输入已有标签补跑；不要一次推送超过三个版本标签，以免 GitHub 不创建推送事件。
 
 设备问题通过仓库的反馈表单提交。每月 1 日 20:00（北京时间）的 GitHub 工作流汇总上个月新增反馈、评论和按机型归组的累计问题；GitHub 排队可能延迟执行，报告保存在 `docs/feedback/`。归组结果用于安排真机复现、修复与下一版适配；未经复测不会标记“已适配”。详细口径见 [反馈工作流](docs/FEEDBACK-WORKFLOW.md)。这些工作在仓库执行，APK 没有加入评论收集或联网反馈功能。
+
+首次[云端构建发布](https://github.com/ggboy6666/LightFrame/actions/runs/36886476127)与[月度统计](https://github.com/ggboy6666/LightFrame/actions/runs/36886311644)已运行成功，见 [0.2.4 验证记录](docs/VALIDATION-0.2.4.md)。

@@ -76,3 +76,7 @@ python scripts/collect_feedback.py --repo owner/repository --month 2026-09
 ```
 
 工作流已经使用固定提交版本的 [actions/checkout v7](https://github.com/actions/checkout) 与 [actions/setup-python v7](https://github.com/actions/setup-python)，版本于 2026-10-01 从官方仓库核对。仓库实际创建、默认分支推送、Actions 启用和首次远程运行，需要在发布阶段完成；本地测试通过不等于远程流程已经运行成功。
+
+## 首次部署结果
+
+2026-10-01 已在公开 [ggboy6666/LightFrame](https://github.com/ggboy6666/LightFrame) 创建表单使用的标签，推送默认分支并启用工作流。[首次运行](https://github.com/ggboy6666/LightFrame/actions/runs/36886311644)成功生成 [2026-09 报告](feedback/2026-09.md)及两份 CSV；新仓库暂无公开反馈，各项数量为 0。APK 未加入反馈收集功能。
