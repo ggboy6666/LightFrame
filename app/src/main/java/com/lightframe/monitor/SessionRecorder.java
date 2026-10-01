@@ -11,7 +11,7 @@ public final class SessionRecorder implements Closeable {
  public static final String[] COLUMNS;
  static{
   ArrayList<String> a=new ArrayList<>(Arrays.asList("elapsed_s","unix_ms"));Collections.addAll(a,Config.METRICS);
-  Collections.addAll(a,"cpuMHz","thermalStatus","charging","layer","frameStatus","frameAvailable","frameWindowReady","frameDataAgeMs","frameWindowSpanMs","captureGapCount","foregroundPackage","foregroundStatus","frameSourceVerified","frameProbeCount","frameCandidateCount","frameProbeFailures","gpuLoadStatus","gpuFrequencyStatus","cpuTemperatureStatus","gpuTemperatureStatus","socTemperatureStatus","thermalServiceStatus","thermalServiceSource","thermalServiceReadNs","thermalServiceAgeMs","paused","longFramesEstimate","bigLongFramesEstimate");
+  Collections.addAll(a,"cpuMHz","thermalStatus","charging","layer","frameStatus","frameAvailable","frameWindowReady","frameWindowStale","frameDataAgeMs","frameWindowSpanMs","captureGapCount","foregroundPackage","foregroundStatus","frameSourceVerified","frameProbeCount","frameCandidateCount","frameProbeFailures","gpuLoadStatus","gpuFrequencyStatus","cpuTemperatureStatus","gpuTemperatureStatus","socTemperatureStatus","thermalServiceStatus","thermalServiceSource","thermalServiceReadNs","thermalServiceAgeMs","paused","longFramesEstimate","bigLongFramesEstimate");
   for(int i=0;i<16;i++)a.add("cpu"+i+"MHz");COLUMNS=a.toArray(new String[0]);
  }
  public final File dir;
@@ -50,8 +50,8 @@ public final class SessionRecorder implements Closeable {
   }
   boolean ready=c.frames&&!current.isEmpty()&&present!=null&&present.length()>0&&sample.optBoolean("frameAvailable",true);
   SessionAnalysis.putFinite(sample,"fps",ready?frames.fps(now):Double.NaN);SessionAnalysis.putFinite(sample,"frameMs",ready?frames.frameMs(now):Double.NaN);
-  boolean windowReady=ready&&frames.windowReady(now);sample.put("frameWindowReady",windowReady);
-  if(ready&&!windowReady)sample.put("frameStatus",captureGap?"帧缓冲未衔接，正在重建窗口；可减小帧采样间隔":"正在收集完整呈现窗口（约1秒）");
+  boolean windowReady=ready&&frames.windowReady(now),windowStale=ready&&frames.windowStale(now);sample.put("frameWindowReady",windowReady);sample.put("frameWindowStale",windowStale);
+  if(ready&&!windowReady)sample.put("frameStatus",windowStale?"最新呈现帧已过期，FPS 暂不可测；实际长帧仍保留在逐帧数据":captureGap?"帧缓冲未衔接，正在重建窗口；可减小帧采样间隔":"正在收集完整呈现窗口（约1秒）");
   SessionAnalysis.putFinite(sample,"frameDataAgeMs",ready?frames.frameDataAgeMs(now):Double.NaN);SessionAnalysis.putFinite(sample,"frameWindowSpanMs",ready?frames.windowSpanMs():Double.NaN);sample.put("captureGapCount",frames.captureGapCount);
   sample.put("longFramesEstimate",JSONObject.NULL);sample.put("bigLongFramesEstimate",JSONObject.NULL);sample.put("paused",false);writeRow(sample,now);
   if(now-lastFlush>2_000_000_000L){samples.flush();frameFile.flush();lastFlush=now;}return sample;

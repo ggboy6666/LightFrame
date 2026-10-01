@@ -29,9 +29,10 @@ public final class FrameStatsTests {
   addRange(stats,start,1,rate+1,rate);
   ok(stats.count==count,"repeated latency buffer is deduplicated at "+rate);
   eq(stats.fps(last),rate,.0001,"duplicate buffer cannot inflate FPS at "+rate);
-  eq(stats.fps(last+1_000_000_000L),0,0,"one second without actual new presentation is zero at "+rate);
+  missing(stats.fps(last+1_000_000_000L),"old presentation evidence is not a measured zero at "+rate);
   missing(stats.frameMs(last+1_000_000_000L),"expired frame duration is not shown as current at "+rate);
-  ok(stats.windowReady(last+1_000_000_000L),"zero is an established measurement at "+rate);
+  ok(!stats.windowReady(last+1_000_000_000L),"expired presentation window is unavailable at "+rate);
+  ok(stats.windowStale(last+1_000_000_000L),"expired presentation evidence is explicitly stale at "+rate);
   stats.updateSource("",last+1_100_000_000L);
   missing(stats.fps(last+1_100_000_000L),"unavailable source is missing rather than zero at "+rate);
   missing(stats.frameDataAgeMs(last+1_100_000_000L),"no age retained for unavailable source at "+rate);
@@ -130,13 +131,51 @@ public final class FrameStatsTests {
   eq(aboveTarget.fps(aboveTarget.lastFrameNs()+200_000_000L),240,.0001,"real FPS is never capped to configured sixty/165");
   FrameStats one=new FrameStats(false);one.updateSource("one",start);one.add(start+10_000_000L,60);
   missing(one.fps(start+500_000_000L),"one timestamp cannot estimate frame rate");
-  eq(one.fps(start+1_010_000_000L),0,0,"a full second without a second present is measured zero");
+  missing(one.fps(start+1_010_000_000L),"one old timestamp cannot prove a zero frame rate");
+ }
+
+ static void slowPresentationAndStaleEvidence(){
+  long start=60_000_000_000L;
+  for(long interval:new long[]{1_000_000_000L,2_000_000_000L}){
+   FrameStats slow=new FrameStats();slow.updateSource("slow",start);
+   slow.add(start+interval,120);
+   missing(slow.fps(start+interval),"one slow presentation has no rate");
+   for(int i=2;i<=5;i++){
+    long present=start+i*interval;slow.add(present,120);
+    eq(slow.fps(present+200_000_000L),1e9/interval,0,"fresh slow interval measures positive actual FPS");
+    eq(slow.frameMs(present+200_000_000L),interval/1e6,0,"slow interval remains an actual long frame");
+    ok(slow.windowReady(present+200_000_000L)&&!slow.windowStale(present+200_000_000L),"fresh slow window is ready");
+    missing(slow.fps(present+1_000_000_000L),"waiting for a slow frame never emits an invented zero");
+    ok(!slow.windowReady(present+1_000_000_000L)&&slow.windowStale(present+1_000_000_000L),"slow old window is explicitly stale");
+   }
+   eq(slow.average(),1e9/interval,0,"captured average retains every real slow interval");
+   ok(slow.count==4&&slow.longFrames==4&&slow.bigLongFrames==4,"slow frames are retained in full aggregation");
+  }
+
+  FrameStats stalled=new FrameStats();stalled.updateSource("game",start);addRange(stalled,start,1,121,120);
+  long last=stalled.lastFrameNs(),before=stalled.count;
+  for(long delay:new long[]{1_000_000_000L,1_500_000_000L,2_500_000_000L}){
+   missing(stalled.fps(last+delay),"a repeated old high-rate window cannot manufacture zero FPS");
+   ok(!stalled.windowReady(last+delay)&&stalled.windowStale(last+delay),"old high-rate window reports unavailable freshness");
+  }
+  ok(!stalled.add(last,120)&&stalled.count==before,"duplicate old frame changes no raw interval evidence");
+  long resumed=last+2_500_000_000L;stalled.add(resumed,120);
+  eq(stalled.fps(resumed),.4,0,"a newly observed real 2.5-second stall measures positive low FPS");
+  eq(stalled.frameMs(resumed),2500,0,"real stall remains in raw frame duration");
+  ok(stalled.count==before+1&&stalled.longFrames==1&&stalled.bigLongFrames==1,"real stall is not discarded by missing-window handling");
+  ok(stalled.average()<120,"real stalled interval still lowers captured average");
+  for(int i=1;i<=121;i++)stalled.add(timestamp(resumed,i,120),120);
+  eq(stalled.fps(stalled.lastFrameNs()),120,.0001,"one complete new high-rate window recovers without a false startup ramp");
+
+  FrameStats empty=new FrameStats(false);
+  ok(!empty.windowStale(start)&&!empty.windowReady(start),"no presentation is distinct from stale presentation");
+  missing(empty.fps(start),"no presentation is missing");
  }
 
  public static void main(String[] args){
   for(int rate:new int[]{1,5,30,60,120,165})constantRateAndDelay(rate);
   jitteredPolls(60);jitteredPolls(120);
-  sourceBoundaries();lostCoverage();liveOnlyAndChangingRate();
+  sourceBoundaries();lostCoverage();liveOnlyAndChangingRate();slowPresentationAndStaleEvidence();
   System.out.println(checks+" frame statistics checks passed");
  }
 }

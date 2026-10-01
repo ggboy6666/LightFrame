@@ -1,0 +1,50 @@
+name: 发布轻帧测试版
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: microsoft
+          java-version: '21'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+      - name: 核对标签与版本
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          version=re.search(r"versionName\s+['\"]([^'\"]+)['\"]",Path('app/build.gradle').read_text()).group(1)
+          tag=os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'v\d+\.\d+\.\d+',tag) and tag=='v'+version, 'Tag/version mismatch'
+          PY
+      - name: 准备与验证
+        run: |
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          python scripts/prepare_ci.py
+          python run-tests.py
+          python build-local.py
+          python scripts/package_source.py
+      - name: 发布安装包、源码与校验摘要
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd ../dist
+          sha256sum *.apk *-source.zip > SHA256SUMS.txt
+          printf '%s\n' '此为公开测试版。安装包与源码由该版本标签构建；使用说明和验证范围见仓库文档。' > release-notes.md
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "该版本已发布，保留现有安装包与源码。"
+            exit 0
+          fi
+          gh release create "$RELEASE_TAG" *.apk *-source.zip SHA256SUMS.txt --verify-tag --title "LightFrame $RELEASE_TAG" --notes-file release-notes.md --repo "$GITHUB_REPOSITORY"

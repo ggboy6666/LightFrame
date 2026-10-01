@@ -68,8 +68,10 @@ public final class FrameStats {
  private long recentAt(int index){return recent[(recentStart+index)%recent.length];}
  private boolean fullWindow(){return recentSize>=2&&last-recentAt(0)>=WINDOW_NS-WINDOW_TOLERANCE_NS;}
 
- /** Complete same-source history, or a full second with no new actual presentation. */
- public boolean windowReady(long now){return last>0&&(fullWindow()||now-last>=WINDOW_NS);}
+ /** An old presentation window does not prove a measured zero frame rate. */
+ public boolean windowStale(long now){return last>0&&now-last>=WINDOW_NS;}
+ /** Complete same-source history with a recent actual presentation. */
+ public boolean windowReady(long now){return last>0&&!windowStale(now)&&fullWindow();}
  public long lastFrameNs(){return last;}
  public double frameDataAgeMs(long now){return last==0?Double.NaN:Math.max(0,(now-last)/1e6);}
  public double windowSpanMs(){return recentSize<2?Double.NaN:(last-recentAt(0))/1e6;}
@@ -77,16 +79,15 @@ public final class FrameStats {
  /**
   * Measured presentation rate in the latest approximately one-second window.
   * Wait for a complete window instead of displaying a biased startup ramp.
-  * The caller must separately mark an unavailable frame source as unavailable.
+  * Old or unavailable presentation evidence is missing, not a fabricated zero.
+  * A fresh interval longer than one second can still measure a real low rate.
   */
  public double fps(long now){
-  if(last==0)return Double.NaN;
-  if(now-last>=WINDOW_NS)return 0;
-  if(!fullWindow())return Double.NaN;
+  if(!windowReady(now))return Double.NaN;
   return (recentSize-1)*1e9/(last-recentAt(0));
  }
  public double frameMs(){return lastMs;}
- public double frameMs(long now){return last==0||now-last>=WINDOW_NS?Double.NaN:lastMs;}
+ public double frameMs(long now){return last==0||windowStale(now)?Double.NaN:lastMs;}
  public double average(){return count==0?Double.NaN:1000*count/totalMs;}
  public double low(double portion){if(!aggregate||count==0)return Double.NaN;long n=Math.max(1,(long)Math.ceil(count*portion)),remaining=n;double sum=0;for(int i=8191;i>=0&&remaining>0;i--){long take=Math.min(remaining,counts[i]);if(take>0){sum+=sums[i]*take/counts[i];remaining-=take;}}return sum>0?1000*n/sum:Double.NaN;}
  public double percentile(double portion){if(!aggregate||count==0)return Double.NaN;long rank=Math.max(1,(long)Math.ceil(count*Math.max(0,Math.min(1,portion)))),seen=0;for(int i=0;i<counts.length;i++){seen+=counts[i];if(seen>=rank)return sums[i]/counts[i];}return Double.NaN;}

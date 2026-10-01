@@ -8,13 +8,13 @@ import java.util.*;
 
 /** Streams immutable raw CSVs, writes a completed summary, and repairs older records. */
 public final class SessionAnalysis {
- public static final int ANALYSIS_VERSION=1;
+ public static final int ANALYSIS_VERSION=2;
  public interface Progress { void onProgress(long sampleRows,long frameRows); }
  private static final Object[] LOCKS=new Object[16];
  static{for(int i=0;i<LOCKS.length;i++)LOCKS[i]=new Object();}
  private static final Set<String> NON_METRICS=new HashSet<>(Arrays.asList(
   "elapsed_s","unix_ms","cpuMHz","thermalStatus","charging","layer","paused","frameStatus","frameAvailable",
-  "frameWindowReady","frameProbeCount","frameCandidateCount","frameProbeFailures","frameDataAgeMs","frameWindowSpanMs","captureGapCount",
+  "frameWindowReady","frameWindowStale","frameProbeCount","frameCandidateCount","frameProbeFailures","frameDataAgeMs","frameWindowSpanMs","captureGapCount",
   "foregroundPackage","foregroundStatus","frameSourceVerified","gpuLoadStatus","gpuFrequencyStatus","cpuTemperatureStatus",
   "gpuTemperatureStatus","socTemperatureStatus","thermalServiceStatus","thermalServiceSource","thermalServiceReadNs","thermalServiceAgeMs",
   "longFramesEstimate","bigLongFramesEstimate"));
@@ -43,12 +43,12 @@ public final class SessionAnalysis {
   long sampleTailBytes=sampleLength-sampleCompleteBytes,frameTailBytes=frameLength>0?frameLength-frameCompleteBytes:0;
   JSONObject result=new JSONObject(seed.toString());
   Map<String,SessionStats.Metric> metrics=new LinkedHashMap<>();
-  long sampleRows=0,frameRows=0,incompleteSamples=sampleTailBytes>0?1:0,incompleteFrames=frameTailBytes>0?1:0,captureGaps=0,firstUnixMs=0;
+  long sampleRows=0,frameRows=0,incompleteSamples=sampleTailBytes>0?1:0,incompleteFrames=frameTailBytes>0?1:0,captureGaps=0,firstUnixMs=0,invalidFpsZeros=0;
   double duration=0;String layer=seed.optString("layer","");notify(progress,0,0);
   try(BufferedReader reader=reader(samples,sampleCompleteBytes)){
    String[] header=header(reader);int elapsed=column(header,"elapsed_s"),unix=column(header,"unix_ms"),layerCol=column(header,"layer"),paused=column(header,"paused"),gaps=column(header,"captureGapCount");
    if(elapsed<0)throw new IOException("原始采样缺少 elapsed_s 列，保留原始文件待检查");
-   boolean[] numeric=new boolean[header.length];for(int i=0;i<header.length;i++)numeric[i]=!NON_METRICS.contains(header[i])&&!header[i].isEmpty();
+   FpsSampleValidity fpsValidity=new FpsSampleValidity(header);boolean[] numeric=new boolean[header.length];for(int i=0;i<header.length;i++)numeric[i]=!NON_METRICS.contains(header[i])&&!header[i].isEmpty();
    String line;while((line=reader.readLine())!=null){
     if(line.isEmpty())continue;String[] row=CsvIndex.parse(line);sampleRows++;if(row.length<header.length)incompleteSamples++;
     double seconds=number(cell(row,elapsed));if(Double.isFinite(seconds)&&seconds>=0)duration=Math.max(duration,seconds);
@@ -56,7 +56,7 @@ public final class SessionAnalysis {
     String nextLayer=cell(row,layerCol);if(!nextLayer.isEmpty())layer=nextLayer;
     captureGaps=Math.max(captureGaps,integer(cell(row,gaps)));
     if(!Boolean.parseBoolean(cell(row,paused)))for(int i=0;i<Math.min(row.length,header.length);i++)if(numeric[i]){
-     double value=number(row[i]);if(Double.isFinite(value)){SessionStats.Metric stat=metrics.get(header[i]);if(stat==null){stat=new SessionStats.Metric(header[i].equals("fps"));metrics.put(header[i],stat);}stat.add(value);}
+     double value=number(row[i]);if(header[i].equals("fps")&&fpsValidity.invalidZero(value,row)){invalidFpsZeros++;value=Double.NaN;}if(Double.isFinite(value)){SessionStats.Metric stat=metrics.get(header[i]);if(stat==null){stat=new SessionStats.Metric(header[i].equals("fps"));metrics.put(header[i],stat);}stat.add(value);}
     }
     if((sampleRows&4095)==0)notify(progress,sampleRows,0);
    }
@@ -89,7 +89,7 @@ public final class SessionAnalysis {
   }
   String captureStatus=seed.optString("captureStatus",seed.optString("status","partial"));boolean interrupted=!captureStatus.equals("complete")&&!captureStatus.equals("error");
   result.put("status",interrupted||incompleteSamples>0||incompleteFrames>0?"partial":captureStatus);result.put("analysisStatus","complete");result.put("analysisVersion",ANALYSIS_VERSION);
-  result.put("statistics",statistics);result.put("samples",sampleRows);result.put("frames",frameRows);double oldDuration=seed.optDouble("durationSeconds",Double.NaN);if(Double.isFinite(oldDuration)&&oldDuration>=0)duration=Math.max(duration,oldDuration);putFinite(result,"durationSeconds",duration);
+  result.put("statistics",statistics);result.put("samples",sampleRows);result.put("frames",frameRows);result.put("excludedUnavailableFpsZeros",invalidFpsZeros);result.put("fpsZeroPolicy","zero excluded only with same-row unavailable/stale window evidence; raw frames unchanged");double oldDuration=seed.optDouble("durationSeconds",Double.NaN);if(Double.isFinite(oldDuration)&&oldDuration>=0)duration=Math.max(duration,oldDuration);putFinite(result,"durationSeconds",duration);
   result.put("layer",layer);result.put("capturedIntervals",frames.count);putFinite(result,"capturedFrameAverageFps",frames.averageFps());putFinite(result,"low1Pct",frames.low(.01));putFinite(result,"low01Pct",frames.low(.001));putFinite(result,"frameTimeP95Ms",frames.percentile(.95));putFinite(result,"frameTimeP99Ms",frames.percentile(.99));
   result.put("longFramesEstimate",frames.longFrames);result.put("bigLongFramesEstimate",frames.bigLongFrames);result.put("frameAnalysisAvailable",frameAnalysisAvailable);result.put("captureGapCount",Math.max(captureGaps,seed.optLong("captureGapCount",0)));result.put("incompleteSampleRows",incompleteSamples);result.put("incompleteFrameRows",incompleteFrames);
   result.put("discardedSampleTailBytes",sampleTailBytes);result.put("discardedFrameTailBytes",frameTailBytes);

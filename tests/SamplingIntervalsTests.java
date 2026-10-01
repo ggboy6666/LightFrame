@@ -1,0 +1,4 @@
+package com.lightframe.monitor;
+public final class SamplingIntervalsTests {
+ public static void main(String[] args){int checks=0;for(String value:new String[]{"50","250","5000"," 125 "}){int n=SamplingIntervals.parse(value,50,5000);if(n<50||n>5000)throw new AssertionError("range");checks++;}for(String value:new String[]{"","0","49","5001","-100","1.5","100ms","2147483648","NaN","99999999999999999999999"}){boolean rejected=false;try{SamplingIntervals.parse(value,50,5000);}catch(IllegalArgumentException expected){rejected=true;}if(!rejected)throw new AssertionError(value);checks++;}if(SamplingIntervals.parse("100",100,60000)!=100||SamplingIntervals.parse("60000",500,60000)!=60000)throw new AssertionError("hardware and temperature endpoints");checks+=2;System.out.println(checks+" sampling interval checks passed");}
+}

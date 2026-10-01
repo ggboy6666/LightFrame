@@ -14,11 +14,11 @@ public final class HistoryRange {
  public static HistoryRange load(CsvIndex source,CsvIndex frames,double begin,double end,String[] keys)throws IOException {
   if(!Double.isFinite(begin)||!Double.isFinite(end)||end<begin)throw new IllegalArgumentException("起止时间无效");
   HistoryRange range=new HistoryRange(begin,end,source.lowerBound(begin),source.upperBound(end));for(String key:keys)range.metrics.put(key,new Metric());
-  int paused=source.column("paused");source.scan(range.from,range.to,(n,row)->{
+  FpsSampleValidity fpsValidity=new FpsSampleValidity(source.header);int paused=source.column("paused");source.scan(range.from,range.to,(n,row)->{
    boolean p=paused>=0&&paused<row.length&&"true".equalsIgnoreCase(row[paused]);range.rows++;if(p)range.pausedRows++;
    for(Map.Entry<String,Metric> entry:range.metrics.entrySet()){
-    String key=entry.getKey();double v=source.value(row,key);entry.getValue().add(v,p);
-    if(!Double.isFinite(v)&&!p){String reason=missingReason(source,row,key);if(!range.missingReasons.containsKey(key))range.missingReasons.put(key,reason);LinkedHashMap<String,Long> counts=range.reasonCounts.get(key);if(counts==null){counts=new LinkedHashMap<>();range.reasonCounts.put(key,counts);}counts.put(reason,counts.getOrDefault(reason,0L)+1);}
+    String key=entry.getKey();double v=source.value(row,key);boolean invalidZero=key.equals("fps")&&fpsValidity.invalidZero(v,row);if(invalidZero)v=Double.NaN;entry.getValue().add(v,p);
+    if(!Double.isFinite(v)&&!p){String reason=invalidZero?FpsSampleValidity.reason():missingReason(source,row,key);if(!range.missingReasons.containsKey(key))range.missingReasons.put(key,reason);LinkedHashMap<String,Long> counts=range.reasonCounts.get(key);if(counts==null){counts=new LinkedHashMap<>();range.reasonCounts.put(key,counts);}counts.put(reason,counts.getOrDefault(reason,0L)+1);}
    }
   });
   if(frames!=null){Metric intervals=new Metric();range.metrics.put("interval_ms",intervals);frames.scan(frames.lowerBound(begin),frames.upperBound(end),(n,row)->{range.frameRows++;intervals.add(frames.value(row,"interval_ms"),false);});}

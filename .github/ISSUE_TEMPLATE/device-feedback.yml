@@ -1,0 +1,85 @@
+name: 设备兼容性反馈
+description: 提交轻帧在某个机型、系统版本和授权方式下的测量问题。
+title: "[设备反馈] "
+labels: ["device-feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请一次反馈一种设备和授权组合。日志请先删除个人信息；不要提交账号、配对码或密钥。
+        这里的反馈会进入公开的每月报告。提交反馈不会直接证明故障已复现或适配已完成。
+  - type: input
+    id: model
+    attributes:
+      label: 机型
+      description: 品牌和完整型号，例如 vivo PA2573；可补充芯片型号。
+      placeholder: 品牌 / 完整型号
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android 版本
+      description: Android 主版本及厂商系统版本，例如 Android 16 / OriginOS。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 轻帧版本
+      description: 应用中的版本号；不要只写“最新版”。
+      placeholder: 0.2.4 / versionCode 6
+    validations:
+      required: true
+  - type: dropdown
+    id: authorization
+    attributes:
+      label: 授权方式
+      options:
+        - 基础模式
+        - Shizuku Shell（UID 2000）
+        - Shizuku / Sui Root（UID 0）
+        - Root（UID 0）
+        - 不确定
+    validations:
+      required: true
+  - type: dropdown
+    id: metrics
+    attributes:
+      label: 受影响指标
+      multiple: true
+      options:
+        - FPS
+        - 帧时间
+        - CPU 使用率
+        - GPU 使用率
+        - GPU 频率
+        - CPU 温度
+        - GPU 温度
+        - SoC 温度
+        - 电池 / 功率
+        - 内存
+        - 网络
+        - 历史记录 / 导出
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 现象和预期
+      description: 写明显示为空、读数不合理、记录打不开或其他具体表现。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 包括目标应用、前台 / 后台状态、采样间隔和重现次数。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 日志和复测证据
+      description: 可附手动诊断日志、截图或短录屏。请说明修复前后是否使用同一设备和配置。

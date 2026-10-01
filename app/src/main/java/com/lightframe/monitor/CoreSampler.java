@@ -98,7 +98,8 @@ public final class CoreSampler implements Closeable {
   }
  }
  private void frames(JSONObject o,JSONObject cfg,long now)throws JSONException{
-  o.put("present",new JSONArray());o.put("frameAvailable",false);o.put("layer","");
+  o.put("present",new JSONArray());o.put("frameAvailable",false);o.put("layer","");o.put("frameSourceVerified",false);
+  o.put("foregroundPackage","");o.put("foregroundStatus","");o.put("foregroundError","");o.put("frameProbeCount",0);o.put("frameCandidateCount",0);o.put("frameProbeFailures",0);
   if(Process.myUid()!=0&&Process.myUid()!=2000){o.put("frameStatus","FPS 需要已授权的 Shizuku / Root");return;}
   String manual=SurfaceLayers.name(cfg.optString("layer",""));String filter=cfg.optString("package","").trim();
   if(filter.isEmpty()&&manual.isEmpty()){
@@ -108,7 +109,7 @@ public final class CoreSampler implements Closeable {
     o.put("frameStatus",filter.isEmpty()?foreground.status:"当前前台为轻帧或系统界面，等待目标应用");return;
    }
   }
-  o.put("frameSourceVerified",!filter.isEmpty()||!manual.isEmpty());try{
+  try{
    if(!filter.equals(lastFilter)||!manual.equals(lastManual)){selectedLayer="";frameDiscovery=null;lastLayerScan=lastFrameError=0;lastFilter=filter;lastManual=manual;}
    if(lastFrameError>0&&now-lastFrameError<5_000_000_000L){o.put("frameStatus",frameDetail+"；稍后重试");return;}
    long[] t=null;
@@ -133,7 +134,7 @@ public final class CoreSampler implements Closeable {
     }
     if(selectedLayer.isEmpty()){o.put("frameStatus",frameDetail);return;}
    }
-   JSONArray a=new JSONArray();for(long p:t)a.put(p);o.put("present",a);o.put("layer",selectedLayer);o.put("frameAvailable",true);frameDetail="已读取实际呈现帧时间";o.put("frameStatus",frameDetail);
+   JSONArray a=new JSONArray();for(long p:t)a.put(p);o.put("present",a);o.put("layer",selectedLayer);o.put("frameAvailable",true);o.put("frameSourceVerified",!filter.isEmpty()||!manual.isEmpty());frameDetail="已读取实际呈现帧时间";o.put("frameStatus",frameDetail);
   }catch(Exception e){lastFrameError=now;selectedLayer="";frameDiscovery=null;frameDetail="帧接口读取失败："+e.getClass().getSimpleName()+" "+e.getMessage();o.put("frameStatus",frameDetail);}
  }
  public synchronized JSONObject handle(JSONObject req)throws Exception{
@@ -154,10 +155,11 @@ public final class CoreSampler implements Closeable {
   if(op.equals("diagnose"))o.put("lastFrameSample",lastFrameSample);
   if(req.optBoolean("frames",true)||op.equals("diagnose")){
    frames(o,cfg,now);
-   if(op.equals("sample")){lastFrameSample=new JSONObject();for(String k:new String[]{"nowNs","layer","frameStatus","frameAvailable","frameProbeCount","frameCandidateCount","frameProbeFailures"})if(o.has(k))lastFrameSample.put(k,o.get(k));lastFrameSample.put("returnedFrameTimes",o.optJSONArray("present").length());}
+   if(op.equals("sample")){lastFrameSample=new JSONObject();for(String k:new String[]{"nowNs","layer","frameStatus","frameAvailable","frameSourceVerified","foregroundPackage","foregroundStatus","foregroundError","frameProbeCount","frameCandidateCount","frameProbeFailures"})if(o.has(k))lastFrameSample.put(k,o.get(k));lastFrameSample.put("returnedFrameTimes",o.optJSONArray("present").length());}
   }
   o.put("helperCpuMs",Process.getElapsedCpuTime());if(req.optBoolean("hardware",true)||op.equals("diagnose"))put(o,"helperRssMB",Numbers.mem(read("/proc/self/status"),"VmRSS"));
   if(op.equals("diagnose")){o.put("version",Config.VERSION);o.put("config",cfg);o.put("latencyProbeSamples",new JSONObject(latencySnapshots));JSONObject detail=new JSONObject();Set<String> probes=new LinkedHashSet<>();probes.addAll(gpuFreqs);probes.addAll(gpuLoads);probes.add(GED_ENABLE);probes.add(GED_MODULE+"gpu_block");probes.add(GED_MODULE+"gpu_idle");for(String key:new String[]{"gpuFreqPath","gpuLoadPath","gpuTempPath"}){String path=cfg.optString(key,"");if(Numbers.safeNode(path))probes.add(path);}probes.addAll(cpuTemps);probes.addAll(gpuTemps);probes.addAll(socTemps);probes.addAll(policies);for(String p:probes){String v=read(p);detail.put(p,v==null?errors.get(p):v.substring(0,Math.min(v.length(),512)));}for(File f:children("/sys/class/thermal"))if(f.getName().startsWith("thermal_zone"))detail.put(f+"/type",read(f+"/type"));o.put("nodes",detail);try{String raw=dump("--list");o.put("layersRaw",raw);o.put("layers",new JSONArray(SurfaceLayers.parse(raw)));}catch(Exception e){o.put("layerError",e.toString());}Debug.MemoryInfo mi=new Debug.MemoryInfo();Debug.getMemoryInfo(mi);o.put("collectorPssMB",mi.getTotalPss()/1024d);}
+  if(op.equals("diagnose"))o.put("gpuTraceProbe",GpuTraceProbe.query(Process.myUid()));
   return o;
  }
  public synchronized void close(){for(RandomAccessFile f:nodes.values())try{f.close();}catch(Exception ignored){}nodes.clear();dumps.shutdownNow();}

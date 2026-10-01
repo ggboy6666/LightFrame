@@ -1,0 +1,18 @@
+package com.lightframe.monitor;
+import java.io.*;import java.nio.charset.StandardCharsets;import java.nio.file.*;import java.util.*;import org.json.*;
+public final class FpsSampleValidityTests {
+ static int checks;static void ok(boolean v,String reason){checks++;if(!v)throw new AssertionError(reason);}
+ public static void main(String[] args)throws Exception{
+  String[] header={"fps","frameAvailable","frameWindowReady","frameWindowStale","frameDataAgeMs","layer"};FpsSampleValidity validity=new FpsSampleValidity(header);
+  String[] good={"60","true","true","false","2","game"};ok(!validity.invalidZero(60,good),"measured positive FPS retained");ok(!validity.invalidZero(0,good),"zero without unavailable evidence not silently removed");
+  for(int i:new int[]{1,2,3,4,5}){String[] row=good.clone();row[i]=i==3?"true":i==4?"1000":i==5?"":"false";ok(validity.invalidZero(0,row),"same-row unavailable evidence "+i);ok(!validity.invalidZero(.5,row),"positive low FPS not capped "+i);}
+  ok(!new FpsSampleValidity(new String[]{"fps"}).invalidZero(0,new String[]{"0"}),"legacy absence of evidence remains raw zero");ok(!validity.invalidZero(Double.NaN,good),"already missing value remains missing");
+  Path folder=Files.createTempDirectory("lightframe-fps-quality-");try{
+   File samples=folder.resolve("samples.csv").toFile();String text="elapsed_s,fps,cpuPct,frameAvailable,frameWindowReady,frameWindowStale,frameDataAgeMs,layer,paused\n0,60,0,true,true,false,2,game,false\n1,0,10,true,true,false,1000,game,false\n2,0,20,false,false,false,,game,false\n3,.5,30,true,true,false,1,game,false\n4,120,99,true,true,false,2,game,true\n";
+   Files.write(samples.toPath(),text.getBytes(StandardCharsets.UTF_8));byte[] before=Files.readAllBytes(samples.toPath());JSONObject seed=new JSONObject().put("captureStatus","complete");JSONObject summary=SessionAnalysis.analyze(folder.toFile(),seed,null);JSONObject fps=summary.getJSONObject("statistics").getJSONObject("fps");ok(fps.getLong("count")==2,"only two measured windows summarized");ok(fps.getDouble("min")==.5,"low positive FPS retained");ok(fps.getDouble("avg")==30.25,"unavailable zero not used as mean denominator");ok(summary.getLong("excludedUnavailableFpsZeros")==2,"excluded zero count reported");ok(summary.getJSONObject("statistics").getJSONObject("cpuPct").getDouble("min")==0,"actual CPU zero remains valid");
+   try(CsvIndex index=new CsvIndex(samples)){ChartData graph=ChartData.load(index,new String[]{"fps"})[0];HistoryRange range=HistoryRange.load(index,null,0,4,new String[]{"fps"});ok(graph.count==2&&graph.min==.5&&graph.avg==30.25,"chart uses same validity rule");ok(range.metrics.get("fps").valid==2&&range.metrics.get("fps").missing==2&&range.metrics.get("fps").paused==1,"range counts missing vs paused accurately");ok(range.metrics.get("fps").avg==30.25,"range mean agrees with full summary");ok(range.reasonCounts.get("fps").get(FpsSampleValidity.reason())==2,"invalid zeros explained");ok(index.value(index.row(1),"fps")==0,"raw zero still individually inspectable");}
+   ok(Arrays.equals(before,Files.readAllBytes(samples.toPath())),"raw CSV remains byte-identical");JSONObject obsolete=new JSONObject(summary.toString()).put("analysisVersion",1);SessionAnalysis.writeAtomic(folder.toFile(),"summary.json",obsolete);ok(SessionAnalysis.ensure(folder.toFile()).getInt("analysisVersion")==2,"older cached summary rebuilt under new policy");
+  }finally{File[] files=folder.toFile().listFiles();if(files!=null)for(File f:files)Files.deleteIfExists(f.toPath());Files.delete(folder);}
+  System.out.println(checks+" FPS sample validity checks passed");
+ }
+}

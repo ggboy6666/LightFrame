@@ -1,0 +1,69 @@
+name: 每月设备反馈报告
+
+on:
+  schedule:
+    # UTC 12:00 = 北京时间 20:00，每月 1 日汇总上一个月。
+    - cron: "0 12 1 * *"
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "报告月份 YYYY-MM；留空汇总北京时间上个月"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: read
+
+concurrency:
+  group: monthly-device-feedback-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 获取默认分支
+        # actions/checkout v7，2026-10-01 核对官方 tag。
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+      - name: 准备 Python
+        # actions/setup-python v7，2026-10-01 核对官方 tag。
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+      - name: 检查统计规则
+        run: python -m unittest discover -s scripts/tests -p 'test_collect_feedback.py' -v
+      - name: 只读收集公开仓库反馈
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REPORT_MONTH: ${{ inputs.month }}
+        shell: bash
+        run: |
+          args=()
+          if [ -n "$REPORT_MONTH" ]; then
+            args+=(--month "$REPORT_MONTH")
+          fi
+          python scripts/collect_feedback.py "${args[@]}"
+      - name: 仅提交报告目录
+        shell: bash
+        run: |
+          git add -- docs/feedback
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              docs/feedback/*.md|docs/feedback/*.csv) ;;
+              *) echo "拒绝提交报告目录以外的文件"; exit 1 ;;
+            esac
+          done < <(git diff --cached --name-only -z)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: update monthly device feedback report"
+          git push
