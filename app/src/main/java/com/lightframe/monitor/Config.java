@@ -1,9 +1,9 @@
 package com.lightframe.monitor;
 import android.content.*;import org.json.*;import java.util.*;
 public final class Config {
- public static final String VERSION="0.2.1";public static final int VERSION_CODE=3;
+ public static final String VERSION="0.2.2";public static final int VERSION_CODE=4;
  public static final String[] METRICS={"fps","frameMs","cpuPct","gpuPct","gpuMHz","cpuC","gpuC","socC","batteryC","powerW","currentMA","batteryPct","voltageMV","ramUsedMB","ramTotalMB","rxKBs","txKBs","monitorCpuPct","monitorRssMB","hardwareAgeMs","temperatureAgeMs","cycleCostMs"};
- public static final String[] LABELS={"FPS","帧时间","CPU 使用率（系统）","GPU 使用率","GPU 频率","CPU 温度","GPU 温度","SoC 温度","电池温度","电池侧功率","电流","电池电量","电池电压","RAM 已用（系统）","RAM 总量","下载","上传","轻帧 CPU（单核当量）","轻帧 RSS","硬件数据距今","温度数据距今","本次采集耗时"};
+ public static final String[] LABELS={"FPS","帧时间","CPU 使用率（系统）","GPU 使用率（系统）","GPU 频率","CPU 温度","GPU 温度","SoC 温度","电池温度","电池侧功率","电流","电池电量","电池电压","RAM 已用（系统）","RAM 总量","下载","上传","轻帧 CPU（单核当量）","轻帧 RSS","硬件数据距今","温度数据距今","本次采集耗时"};
  public static final String[] UNITS={"fps","ms","%","%","MHz","°C","°C","°C","°C","W","mA","%","mV","MB","MB","KB/s","KB/s","%","MB","ms","ms","ms"};
  public static final String[] TABS={"概览","FPS","CPU","频率","GPU","RAM","功耗","温度","电池","采样明细","逐帧数据"};
  public static final String[][] GROUPS={{},{"fps","frameMs"},{"cpuPct"},{"gpuMHz","cpu0MHz","cpu1MHz","cpu2MHz","cpu3MHz","cpu4MHz","cpu5MHz","cpu6MHz","cpu7MHz","cpu8MHz","cpu9MHz","cpu10MHz","cpu11MHz","cpu12MHz","cpu13MHz","cpu14MHz","cpu15MHz"},{"gpuPct","gpuMHz"},{"ramUsedMB"},{"powerW","currentMA","voltageMV"},{"cpuC","gpuC","socC","batteryC"},{"batteryPct","currentMA","batteryC"}};
@@ -13,5 +13,6 @@ public final class Config {
  public static String label(String k){for(int i=0;i<METRICS.length;i++)if(METRICS[i].equals(k))return LABELS[i];if(k.matches("cpu\\d+MHz"))return "CPU 策略 "+k.substring(3,k.length()-3)+" 频率";return k;}
  public static String unit(String k){for(int i=0;i<METRICS.length;i++)if(METRICS[i].equals(k))return UNITS[i];return k.endsWith("MHz")?"MHz":"";}
  public static String format(String k,double v){return Numbers.display(v,k.endsWith("MB")||k.endsWith("MHz")||k.equals("voltageMV")?0:k.equals("powerW")||k.equals("frameMs")?2:1)+(Double.isFinite(v)?" "+unit(k):"");}
+ public static String formatSample(String k,JSONObject sample){double value=sample.optDouble(k);if(!Double.isFinite(value)&&(k.equals("gpuPct")||k.equals("gpuMHz"))){String status=sample.optString(k.equals("gpuPct")?"gpuLoadStatus":"gpuFrequencyStatus","");if(status.contains("未启用"))return "接口未启用";if(status.contains("拒绝"))return "读取受限";}return format(k,value);}
  public static String elapsed(double s){int n=(int)Math.max(0,s);return String.format(Locale.US,"%d:%02d.%03d",n/60,n%60,(int)(s*1000)%1000);}
 }

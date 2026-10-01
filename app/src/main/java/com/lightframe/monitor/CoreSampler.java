@@ -10,6 +10,7 @@ import java.util.concurrent.*;
 
 /** Shared collector for app UID, shell UID (Shizuku), or root UID. No shell per poll. */
 public final class CoreSampler implements Closeable {
+ private static final String GED_MODULE="/sys/module/ged/parameters/",GED_LOAD=GED_MODULE+"gpu_loading",GED_ENABLE=GED_MODULE+"gpu_dvfs_enable";
  private final Map<String,RandomAccessFile> nodes=new LinkedHashMap<>();
  private final Map<String,String> errors=new LinkedHashMap<>();
  private final List<String> policies=new ArrayList<>(),cpuTemps=new ArrayList<>(),gpuTemps=new ArrayList<>(),socTemps=new ArrayList<>();
@@ -25,7 +26,7 @@ public final class CoreSampler implements Closeable {
  private void discover(){
   for(File f:children("/sys/devices/system/cpu/cpufreq"))if(f.getName().startsWith("policy")&&policies.size()<16){String p=f+"/scaling_cur_freq";if(read(p)==null)p=f+"/cpuinfo_cur_freq";policies.add(p);}
   Collections.addAll(gpuFreqs,"/sys/class/kgsl/kgsl-3d0/gpuclk","/sys/kernel/ged/hal/current_freq","/sys/kernel/ged/hal/current_freqency","/sys/kernel/debug/ged/hal/current_freqency","/proc/gpufreqv2/gpufreq_status","/proc/gpufreqv2/gpufreq_var_dump","/proc/gpufreq/gpufreq_var_dump");
-  Collections.addAll(gpuLoads,"/sys/class/kgsl/kgsl-3d0/gpubusy","/sys/kernel/ged/hal/gpu_utilization","/sys/kernel/ged/hal/gpu_loading","/sys/kernel/debug/ged/hal/gpu_utilization");
+  Collections.addAll(gpuLoads,"/sys/class/kgsl/kgsl-3d0/gpubusy","/sys/kernel/ged/hal/gpu_utilization","/sys/kernel/ged/hal/gpu_loading",GED_LOAD,"/sys/kernel/debug/ged/hal/gpu_utilization");
   for(File f:children("/sys/class/devfreq")){String n=f.getName().toLowerCase(Locale.ROOT);String name=read(f+"/name");if(name!=null)n+=name.toLowerCase(Locale.ROOT);if(n.contains("gpu")||n.contains("mali")||n.contains("kgsl")){gpuFreqs.add(f+"/cur_freq");gpuLoads.add(f+"/load");gpuLoads.add(f+"/gpu_load");gpuLoads.add(f+"/utilization");}}
   for(File f:children("/sys/class/thermal"))if(f.getName().startsWith("thermal_zone")){String type=read(f+"/type");if(type==null)continue;type=type.trim().toLowerCase(Locale.ROOT);List<String> a=type.contains("gpu")?gpuTemps:type.contains("cpu")?cpuTemps:(type.contains("soc")||type.contains("tsens")||type.equals("ap")||type.contains("mtktsap"))?socTemps:null;if(a!=null&&a.size()<8)a.add(f+"/temp");}
   // Type/name files are one-time probes. Retain only selected recurring sensor descriptors later.
@@ -35,12 +36,13 @@ public final class CoreSampler implements Closeable {
  private double thermal(List<String> paths){double max=Double.NaN;for(String p:paths){double v=Numbers.temp(read(p));if(Double.isFinite(v))max=Double.isNaN(max)?v:Math.max(max,v);}return max;}
  private double gpu(JSONObject out,JSONObject cfg,boolean freq)throws JSONException{
   String custom=cfg.optString(freq?"gpuFreqPath":"gpuLoadPath","");List<String> a=Numbers.safeNode(custom)?Collections.singletonList(custom):freq?gpuFreqs:gpuLoads;
-  for(String p:a){String s=read(p);double v;
+  boolean disabled=false;for(String p:a){String s=read(p);double v;
    if(freq){if(p.equals(custom)){double unit=cfg.optString("gpuFreqUnit","kHz").equals("Hz")?1e6:cfg.optString("gpuFreqUnit","kHz").equals("MHz")?1:1000;v=Numbers.first(s)/unit;}else if(p.contains("/ged/"))v=Numbers.gedFreq(s);else if(p.contains("/gpufreq"))v=Numbers.mtkFreq(s);else v=Numbers.first(s)/1e6;if(!(v>0&&v<10000))v=Double.NaN;}
+   else if(p.equals(GED_LOAD)){String enabled=read(GED_ENABLE);double[] flags=Numbers.tokens(enabled);disabled|=s!=null&&flags.length==1&&flags[0]==0;v=Numbers.gedModuleLoad(s,enabled);}
    else v=p.endsWith("gpubusy")||p.equals(custom)&&cfg.optString("gpuLoadFormat").equals("busy_total")?Numbers.busy(s):Numbers.percent(s);
    if(Double.isFinite(v)){out.put(freq?"gpuFrequencyStatus":"gpuLoadStatus",p);return v;}
   }boolean denied=false;for(String p:a){String error=errors.get(p);if(error!=null&&(error.contains("EACCES")||error.contains("Permission denied")))denied=true;}
-  out.put(freq?"gpuFrequencyStatus":"gpuLoadStatus",denied?"系统拒绝当前授权读取 GPU 节点":"系统未提供可读取的 GPU 节点");return Double.NaN;
+  out.put(freq?"gpuFrequencyStatus":"gpuLoadStatus",disabled?"联发科 GPU 负载接口未启用"+(denied?"；其他节点读取受限":""):denied?"系统拒绝当前授权读取 GPU 节点":"系统未提供可读取的 GPU 节点");return Double.NaN;
  }
  private String dump(String... args)throws Exception{return serviceDump("SurfaceFlinger",args);}
  private String serviceDump(String service,String... args)throws Exception{
@@ -108,12 +110,12 @@ public final class CoreSampler implements Closeable {
     }
    }
    if(!selectedLayer.isEmpty()&&manual.isEmpty()){
-    if(frameDiscovery==null&&now-lastLayerScan>=5_000_000_000L){lastLayerScan=now;List<String> candidates=SurfaceLayers.rank(layerList(),filter);for(Iterator<String> it=candidates.iterator();it.hasNext();)if(!useful(it.next(),filter))it.remove();frameDiscovery=new FrameDiscovery(candidates);}
+    if(frameDiscovery==null&&now-lastLayerScan>=5_000_000_000L){lastLayerScan=now;List<String> candidates=SurfaceLayers.rankDump(dump("--list"),filter);for(Iterator<String> it=candidates.iterator();it.hasNext();)if(!useful(it.next(),""))it.remove();frameDiscovery=new FrameDiscovery(candidates);}
     if(frameDiscovery!=null){FrameDiscovery.Result other=frameDiscovery.advance(this::readPresent,System.nanoTime(),3,150_000_000L);o.put("frameProbeCount",frameDiscovery.cursor);o.put("frameCandidateCount",frameDiscovery.candidates.size());o.put("frameProbeFailures",frameDiscovery.failures);if(other!=null&&other.present[other.present.length-1]>t[t.length-1]){selectedLayer=other.layer;t=other.present;}if(frameDiscovery.finished()){frameDiscovery=null;lastLayerScan=System.nanoTime();}}
    }
    if(selectedLayer.isEmpty()){
     if(frameDiscovery==null&&(lastLayerScan==0||now-lastLayerScan>=5_000_000_000L)){
-     lastLayerScan=now;List<String> a=SurfaceLayers.rank(layerList(),filter);for(Iterator<String> it=a.iterator();it.hasNext();)if(!useful(it.next(),filter))it.remove();frameDiscovery=new FrameDiscovery(a);
+     lastLayerScan=now;List<String> a=SurfaceLayers.rankDump(dump("--list"),filter);for(Iterator<String> it=a.iterator();it.hasNext();)if(!useful(it.next(),""))it.remove();frameDiscovery=new FrameDiscovery(a);
     }
     if(frameDiscovery!=null){
      FrameDiscovery.Result found=frameDiscovery.advance(this::readPresent,System.nanoTime(),3,150_000_000L);
@@ -144,7 +146,7 @@ public final class CoreSampler implements Closeable {
    if(op.equals("sample")){lastFrameSample=new JSONObject();for(String k:new String[]{"nowNs","layer","frameStatus","frameAvailable","frameProbeCount","frameCandidateCount","frameProbeFailures"})if(o.has(k))lastFrameSample.put(k,o.get(k));lastFrameSample.put("returnedFrameTimes",o.optJSONArray("present").length());}
   }
   o.put("helperCpuMs",Process.getElapsedCpuTime());if(req.optBoolean("hardware",true)||op.equals("diagnose"))put(o,"helperRssMB",Numbers.mem(read("/proc/self/status"),"VmRSS"));
-  if(op.equals("diagnose")){o.put("version",Config.VERSION);o.put("config",cfg);o.put("latencyProbeSamples",new JSONObject(latencySnapshots));JSONObject detail=new JSONObject();Set<String> probes=new LinkedHashSet<>();probes.addAll(gpuFreqs);probes.addAll(gpuLoads);probes.addAll(cpuTemps);probes.addAll(gpuTemps);probes.addAll(socTemps);probes.addAll(policies);for(String p:probes){String v=read(p);detail.put(p,v==null?errors.get(p):v.substring(0,Math.min(v.length(),512)));}for(File f:children("/sys/class/thermal"))if(f.getName().startsWith("thermal_zone"))detail.put(f+"/type",read(f+"/type"));o.put("nodes",detail);try{String raw=dump("--list");o.put("layersRaw",raw);o.put("layers",new JSONArray(SurfaceLayers.parse(raw)));}catch(Exception e){o.put("layerError",e.toString());}Debug.MemoryInfo mi=new Debug.MemoryInfo();Debug.getMemoryInfo(mi);o.put("collectorPssMB",mi.getTotalPss()/1024d);}
+  if(op.equals("diagnose")){o.put("version",Config.VERSION);o.put("config",cfg);o.put("latencyProbeSamples",new JSONObject(latencySnapshots));JSONObject detail=new JSONObject();Set<String> probes=new LinkedHashSet<>();probes.addAll(gpuFreqs);probes.addAll(gpuLoads);probes.add(GED_ENABLE);probes.add(GED_MODULE+"gpu_block");probes.add(GED_MODULE+"gpu_idle");for(String key:new String[]{"gpuFreqPath","gpuLoadPath","gpuTempPath"}){String path=cfg.optString(key,"");if(Numbers.safeNode(path))probes.add(path);}probes.addAll(cpuTemps);probes.addAll(gpuTemps);probes.addAll(socTemps);probes.addAll(policies);for(String p:probes){String v=read(p);detail.put(p,v==null?errors.get(p):v.substring(0,Math.min(v.length(),512)));}for(File f:children("/sys/class/thermal"))if(f.getName().startsWith("thermal_zone"))detail.put(f+"/type",read(f+"/type"));o.put("nodes",detail);try{String raw=dump("--list");o.put("layersRaw",raw);o.put("layers",new JSONArray(SurfaceLayers.parse(raw)));}catch(Exception e){o.put("layerError",e.toString());}Debug.MemoryInfo mi=new Debug.MemoryInfo();Debug.getMemoryInfo(mi);o.put("collectorPssMB",mi.getTotalPss()/1024d);}
   return o;
  }
  public synchronized void close(){for(RandomAccessFile f:nodes.values())try{f.close();}catch(Exception ignored){}nodes.clear();dumps.shutdownNow();}

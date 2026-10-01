@@ -73,6 +73,66 @@ public final class SurfaceLayerTests {
         ok(buffers.size() == 2, "pure hierarchy container skipped when app buffers exist");
         ok(SurfaceLayers.rank(Arrays.asList("VendorUnknown#1", "Task=1#2"), "").size() == 2,
                 "unknown vendor-only layouts retain fallback candidates");
+
+        Path latestFixture = Paths.get(args.length < 2 ? "tests/fixtures/vivo-android16-021-layers.txt" : args[1]);
+        String latestDump = new String(Files.readAllBytes(latestFixture), StandardCharsets.UTF_8);
+        List<String> latestAll = SurfaceLayers.parse(latestDump);
+        ok(latestAll.size() == 249, "0.2.1 diagnostic list remains complete");
+        ok(latestAll.contains("#228671"), "anonymous LightFrame buffer remains manually selectable");
+        List<String> latestAuto = SurfaceLayers.rankDump(latestDump, "");
+        ok(!latestAuto.contains("#228671"), "real anonymous LightFrame descendant excluded automatically");
+        ok(!latestAuto.stream().anyMatch(s -> s.contains("com.lightframe.monitor")), "LightFrame named owners excluded");
+        ok(!latestAuto.contains("MirrorRoot#228777"), "real recording display anonymous mirror subtree excluded");
+        ok(!latestAuto.stream().anyMatch(s -> s.contains("VivoScreenRecorder")), "known recording display excluded");
+        ok(latestAll.contains("FakeGestureBar 09-02 21:53:24.908#52"), "real gesture overlay remains in complete manual list");
+        ok(!latestAuto.contains("FakeGestureBar 09-02 21:53:24.908#52"), "real FakeGestureBar owner excluded automatically");
+        ok(!latestAuto.contains("[BBQ] FakeGestureBar 09-02 21:53:24.908#52#117"), "real FakeGestureBar BBQ descendant excluded by parent link");
+        String actualGame = "com.tencent.tmgp.supercell.clashofclans/com.supercell.titan.tencent.GameAppTencent 10-01 16:13:32.075#228813";
+        ok(latestAuto.contains(actualGame), "actual real game buffer retained");
+        ok(SurfaceLayers.rankDump(latestDump, "com.tencent.tmgp.supercell.clashofclans").contains(actualGame),
+                "actual game package filter retained");
+
+        String ownership = String.join("\n", Arrays.asList(
+                "RequestedLayerState{#2 parentId=1}", // child precedes its owner in --list
+                "RequestedLayerState{#3 parentId=2}",
+                "RequestedLayerState{Window:game type=1 com.example.game/.Main#1 parentId=9999}",
+                "RequestedLayerState{#5 parentId=4}",
+                "RequestedLayerState{Window:overlay type=2038 com.lightframe.monitor#4}",
+                "RequestedLayerState{#7 parentId=6}",
+                "RequestedLayerState{Window:overlay type=2038 com.example.game/.Helper#6}",
+                "RequestedLayerState{#9 parentId=8}",
+                "RequestedLayerState{Window:presentation type=2030 com.example.game/.Presentation#8}",
+                "RequestedLayerState{#11 parentId=10}",
+                "RequestedLayerState{Display 6 name=\"VivoScreenRecorder\"#10 layerStack=6}",
+                "RequestedLayerState{#13 parentId=12}",
+                "RequestedLayerState{Window:sys type=2000 StatusBar#12}",
+                "RequestedLayerState{#14 parentId=424242}",
+                "RequestedLayerState{#15 parentId=16}",
+                "RequestedLayerState{com.example.game/.Cycle#16 parentId=15}",
+                "RequestedLayerState{#17 parentId=18}",
+                "RequestedLayerState{com.lightframe.monitor#18 parentId=17}",
+                "RequestedLayerState{#19 relativeParentId=4}",
+                "OrdinaryRawBuffer#20"));
+        List<String> syntheticAll = SurfaceLayers.parse(ownership);
+        ok(syntheticAll.size() == 20 && syntheticAll.contains("#5"), "parse is never ownership-filtered");
+        List<String> automatic = SurfaceLayers.rankDump(ownership, "");
+        ok(automatic.contains("#2") && automatic.contains("#3"), "legal anonymous game buffers and nested descendants survive");
+        ok(!automatic.contains("#5"), "anonymous LightFrame buffer excluded through owner");
+        ok(automatic.contains("#7") && automatic.contains("#9"), "game overlays and Presentation types are not globally blocked");
+        ok(!automatic.contains("#11") && !automatic.contains("#13"), "recorder and explicit system window descendants excluded");
+        ok(automatic.contains("#14"), "unknown parent does not imply an excluded owner");
+        ok(automatic.contains("#15"), "benign parent cycle terminates and remains available");
+        ok(!automatic.contains("#17"), "excluded owner reached within a cycle still excludes descendants");
+        ok(automatic.contains("#19"), "relative Z parent is not mistaken for ownership parent");
+        ok(automatic.contains("OrdinaryRawBuffer#20"), "ordinary raw layer without metadata remains compatible");
+        List<String> inheritedGame = SurfaceLayers.rankDump(ownership, "com.example.game");
+        ok(inheritedGame.contains("#2") && inheritedGame.contains("#3"), "package match inherited from multiple ancestors");
+        ok(inheritedGame.contains("#7") && inheritedGame.contains("#9"), "package matches legitimate overlay and Presentation owners");
+        ok(inheritedGame.contains("#15"), "package inheritance terminates safely through parent cycle");
+        ok(!inheritedGame.contains("#14") && !inheritedGame.contains("#5"), "unattributed and excluded buffers do not match target package");
+        ok(SurfaceLayers.rankDump(null, "").isEmpty(), "null raw ownership dump");
+        ok(SurfaceLayers.rankDump("raw  #1\r\nraw  #1\r\nother#2", "").equals(Arrays.asList("raw  #1", "other#2")),
+                "legacy raw list preserves whitespace and deduplicates");
         System.out.println(checks + " SurfaceLayer checks passed");
     }
 }

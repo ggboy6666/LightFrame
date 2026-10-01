@@ -8,6 +8,8 @@ public final class Numbers {
  public static double first(String s) { if(s==null)return Double.NaN; Matcher m=Pattern.compile("[-+]?[0-9]+(?:\\.[0-9]+)?").matcher(s);try{return m.find()?Double.parseDouble(m.group()):Double.NaN;}catch(Exception e){return Double.NaN;} }
  public static double[] tokens(String s) { if(s==null)return new double[0];String[] t=s.trim().split("\\s+"); double[] a=new double[t.length];try{for(int i=0;i<a.length;i++)a[i]=Double.parseDouble(t[i]);return a;}catch(Exception e){return new double[0];} }
  public static double percent(String s) {double d=first(s);return d>=0&&d<=100?d:Double.NaN;}
+ /** GED module load is one percentage; a disabled driver clears it to a synthetic zero. */
+ public static double gedModuleLoad(String loading,String enabled) {double[] flags=tokens(enabled),values=tokens(loading);if(flags.length==1&&flags[0]==0)return Double.NaN;return values.length==1&&values[0]>=0&&values[0]<=100?values[0]:Double.NaN;}
  public static double busy(String s) {double[] a=tokens(s);return a.length>=2&&a[1]>0&&a[0]>=0&&a[0]<=a[1]?100*a[0]/a[1]:Double.NaN;}
  public static double temp(String s) {double d=first(s);if(Math.abs(d)>1000)d/=1000;return d>=-30&&d<=180?d:Double.NaN;}
  public static double gedFreq(String s) { if(s==null)return Double.NaN;Matcher m=Pattern.compile("(?i)(?:current_?freq(?:uency)?|freq(?:uency)?)\\s*[:=]\\s*(\\d+)").matcher(s);if(m.find())return Double.parseDouble(m.group(1))/1000;double[] a=tokens(s);return a.length==1?a[0]/1000:a.length==2?a[1]/1000:Double.NaN; }

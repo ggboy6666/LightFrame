@@ -1,0 +1,249 @@
+RequestedLayerState{SideSlideGestureBar-Bottom 09-02 21:53:34.209#109 parentId=97}
+RequestedLayerState{WindowToken{415e45b type=2032 android.os.Binder@17d476a} 10-01 03:46:13.105#220404 parentId=124589}
+RequestedLayerState{WindowedMagnification:0:31 09-02 21:53:24.880#3 parentId=47}
+RequestedLayerState{HideDisplayCutout:0:14 09-02 21:53:24.882#4 parentId=3}
+RequestedLayerState{OneHanded:0:14 09-02 21:53:24.882#5 parentId=4}
+RequestedLayerState{AppZoomOut:0:0 09-02 21:53:24.883#6 parentId=5}
+RequestedLayerState{Leaf:0:0 09-02 21:53:24.883#7 parentId=6}
+RequestedLayerState{Leaf:1:1 09-02 21:53:24.884#8 parentId=5 z=1}
+RequestedLayerState{AppZoomOut:2:14 09-02 21:53:24.884#9 parentId=5 z=2}
+RequestedLayerState{DefaultTaskDisplayArea 09-02 21:53:24.885#10 parentId=9}
+RequestedLayerState{Leaf:3:12 09-02 21:53:24.885#11 parentId=9 z=1}
+RequestedLayerState{ImePlaceholder:13:14 09-02 21:53:24.886#12 parentId=9 z=2}
+RequestedLayerState{ImeContainer 09-02 21:53:24.886#13 parentId=228467 relativeParentId=228475 z=1}
+RequestedLayerState{OneHanded:15:15 09-02 21:53:24.887#14 parentId=3 z=1}
+RequestedLayerState{Leaf:15:15 09-02 21:53:24.887#15 parentId=14}
+RequestedLayerState{HideDisplayCutout:16:16 09-02 21:53:24.888#16 parentId=3 z=2}
+RequestedLayerState{OneHanded:16:16 09-02 21:53:24.888#17 parentId=16}
+RequestedLayerState{AppZoomOut:16:16 09-02 21:53:24.889#18 parentId=17}
+RequestedLayerState{Leaf:16:16 09-02 21:53:24.889#19 parentId=18}
+RequestedLayerState{OneHanded:17:17 09-02 21:53:24.889#20 parentId=3 z=3}
+RequestedLayerState{Leaf:17:17 09-02 21:53:24.890#21 parentId=20}
+RequestedLayerState{HideDisplayCutout:18:23 09-02 21:53:24.890#22 parentId=3 z=4}
+RequestedLayerState{OneHanded:18:23 09-02 21:53:24.890#23 parentId=22}
+RequestedLayerState{AppZoomOut:18:18 09-02 21:53:24.891#24 parentId=23}
+RequestedLayerState{Leaf:18:18 09-02 21:53:24.891#25 parentId=24}
+RequestedLayerState{Leaf:19:19 09-02 21:53:24.891#26 parentId=23 z=1}
+RequestedLayerState{AppZoomOut:20:21 09-02 21:53:24.892#27 parentId=23 z=2}
+RequestedLayerState{Leaf:20:21 09-02 21:53:24.892#28 parentId=27}
+RequestedLayerState{Leaf:22:22 09-02 21:53:24.893#29 parentId=23 z=3}
+RequestedLayerState{AppZoomOut:23:23 09-02 21:53:24.893#30 parentId=23 z=4}
+RequestedLayerState{Leaf:23:23 09-02 21:53:24.894#31 parentId=30}
+RequestedLayerState{Leaf:24:25 09-02 21:53:24.894#32 parentId=3 z=5}
+RequestedLayerState{HideDisplayCutout:26:31 09-02 21:53:24.895#33 parentId=3 z=6}
+RequestedLayerState{OneHanded:26:31 09-02 21:53:24.896#34 parentId=33}
+RequestedLayerState{AppZoomOut:26:31 09-02 21:53:24.896#35 parentId=34}
+RequestedLayerState{Leaf:26:31 09-02 21:53:24.897#36 parentId=35}
+RequestedLayerState{HideDisplayCutout:32:35 09-02 21:53:24.897#37 parentId=47 z=1}
+RequestedLayerState{OneHanded:32:32 09-02 21:53:24.897#38 parentId=37}
+RequestedLayerState{AppZoomOut:32:32 09-02 21:53:24.898#39 parentId=38}
+RequestedLayerState{Leaf:32:32 09-02 21:53:24.898#40 parentId=39}
+RequestedLayerState{AppZoomOut:33:33 09-02 21:53:24.899#41 parentId=37 z=1}
+RequestedLayerState{Leaf:33:33 09-02 21:53:24.899#42 parentId=41}
+RequestedLayerState{OneHanded:34:35 09-02 21:53:24.900#43 parentId=37 z=2}
+RequestedLayerState{AppZoomOut:34:35 09-02 21:53:24.900#44 parentId=43}
+RequestedLayerState{Leaf:34:35 09-02 21:53:24.900#45 parentId=44}
+RequestedLayerState{Leaf:36:36 09-02 21:53:24.901#46 parentId=47 z=2}
+RequestedLayerState{Display 0 name="内置屏幕" 09-02 21:53:24.901#47}
+RequestedLayerState{Display Overlays 09-02 21:53:24.903#48 parentId=47 z=2147483647}
+RequestedLayerState{Input Overlays 09-02 21:53:24.903#49 parentId=47 z=2147483646}
+RequestedLayerState{Accessibility Overlays 09-02 21:53:24.904#50 parentId=47 z=2147483645}
+RequestedLayerState{FakeStatusBar 09-02 21:53:24.907#51 parentId=47 z=2147483644}
+RequestedLayerState{FakeGestureBar 09-02 21:53:24.908#52 parentId=47 z=2147483644}
+RequestedLayerState{Task=1 09-02 21:53:24.915#53 parentId=10}
+RequestedLayerState{SnapshotWindowParent 09-02 21:53:29.037#54 parentId=53 z=2147483645}
+RequestedLayerState{home_task_overlay_container 09-02 21:53:30.116#55 parentId=53 z=2147483647}
+RequestedLayerState{Task=2 09-02 21:53:30.305#56 parentId=10 z=2}
+RequestedLayerState{Task=3 09-02 21:53:30.308#57 parentId=56}
+RequestedLayerState{Task=4 09-02 21:53:30.313#58 parentId=56 z=1}
+RequestedLayerState{Task=5 09-02 21:53:30.317#59 parentId=10 z=3}
+RequestedLayerState{TaskFragment{3f0023 mode=fullscreen} 09-02 21:53:30.318#60 parentId=59}
+RequestedLayerState{Task=6 09-02 21:53:30.354#61 parentId=10 z=1}
+RequestedLayerState{WindowToken{e1f6c0e type=2999 android.view.ViewRootImpl$W@12c2209} 09-02 21:53:30.381#62 parentId=11}
+RequestedLayerState{Window:96bd5c5 type=2999 RatioSwitchButtonView 09-02 21:53:30.397#63 parentId=62}
+RequestedLayerState{Task=7 09-02 21:53:30.536#64 parentId=53}
+RequestedLayerState{ActivityRecord{77842780 u0 com.bbk.launcher2/.Launcher t7 d0} 09-02 21:53:30.542#65 parentId=64}
+RequestedLayerState{WindowToken{5da856d type=2038 android.os.BinderProxy@50a97a} 09-02 21:53:30.721#66 parentId=11 z=2}
+RequestedLayerState{Window:1054e16 type=2038 ShellDropTarget 09-02 21:53:30.722#67 parentId=66}
+RequestedLayerState{Dim layer 09-02 21:53:30.747#68 parentId=57 z=2147483646}
+RequestedLayerState{[Gesture Monitor] global_gesture_monitor 09-02 21:53:30.933#69 parentId=49 z=1}
+RequestedLayerState{WallpaperWindowToken{cbf901c showWhenLocked=false} 09-02 21:53:31.321#70 parentId=8}
+RequestedLayerState{WallpaperWindowToken{14de7ff showWhenLocked=false} 09-02 21:53:31.360#71 parentId=8 z=1}
+RequestedLayerState{Window:57b1c1 type=2013 com.android.systemui.wallpapers.ImageWallpaper 09-02 21:53:31.424#72 parentId=70}
+RequestedLayerState{WindowToken{db8b04a type=2024 android.os.BinderProxy@fbbec9a} 09-02 21:53:31.501#73 z=1073741826}
+RequestedLayerState{Window:95efea2 type=2024 ScreenDecorOverlay 09-02 21:53:31.504#74 parentId=73}
+RequestedLayerState{com.android.systemui.wallpapers.ImageWallpaper 09-02 21:53:31.567#75 parentId=72}
+RequestedLayerState{Wallpaper BBQ wrapper 09-02 21:53:31.570#76 parentId=75}
+RequestedLayerState{Window:d49da86 type=2013 com.android.systemui.wallpapers.ImageWallpaper 09-02 21:53:31.704#77 parentId=71}
+RequestedLayerState{com.android.systemui.wallpapers.ImageWallpaper 09-02 21:53:31.707#78 parentId=77}
+RequestedLayerState{Wallpaper BBQ wrapper 09-02 21:53:31.710#79 parentId=78}
+RequestedLayerState{Window:dfcb692 type=2009 MusicWidgetToast 10-01 14:52:13.542#226813 parentId=226812}
+RequestedLayerState{Task=14770 10-01 16:10:12.032#228175 parentId=10 z=5}
+RequestedLayerState{Input Consumer recents_animation_input_consumer 09-30 03:00:06.906#201274 relativeParentId=10 z=2147483645}
+RequestedLayerState{WindowToken{500f9e0 type=2032 android.os.Binder@e1adbe3} 10-01 03:46:13.103#220403 parentId=36}
+RequestedLayerState{Dim layer 09-02 21:53:32.307#86 parentId=58 z=2147483646}
+RequestedLayerState{WindowToken{e981503 type=2024 android.os.BinderProxy@2ecb1b2} 09-02 21:53:32.710#96 parentId=32 z=3}
+RequestedLayerState{WindowToken{5512e3 type=2024 android.os.BinderProxy@6697b12} 09-02 21:53:32.338#87 z=1073741826}
+RequestedLayerState{Window:dc36399 type=2024 ScreenDecorOverlayBottom 09-02 21:53:32.341#88 parentId=87}
+RequestedLayerState{WindowToken{44485f0 type=2024 android.os.BinderProxy@ce3ce33} 09-02 21:53:32.519#89 parentId=32}
+RequestedLayerState{Window:e6965ee type=2024 SideSlideDisplayPanel 09-02 21:53:32.522#90 parentId=89}
+RequestedLayerState{WindowToken{396b0d4 type=2024 android.os.BinderProxy@2e18341} 09-02 21:53:32.570#91 parentId=32 z=1}
+RequestedLayerState{Window:3d7931f type=2024 SideSlideGestureBar-Left 09-02 21:53:32.575#92 parentId=91}
+RequestedLayerState{Window:ec682b9 type=2024 SideSlideGestureBar-Bottom 09-02 21:53:32.712#97 parentId=96}
+RequestedLayerState{WindowToken{1ca39db type=2024 android.os.BinderProxy@d9f82ea} 09-02 21:53:32.637#94 parentId=32 z=2}
+RequestedLayerState{Window:9318f51 type=2024 SideSlideGestureBar-Right 09-02 21:53:32.642#95 parentId=94}
+RequestedLayerState{WindowToken{53df48f type=2040 android.os.BinderProxy@d612169} 09-02 21:53:33.034#98 parentId=21}
+RequestedLayerState{Window:fe16b25 type=2040 NotificationShade 09-02 21:53:33.037#99 parentId=98}
+RequestedLayerState{WindowToken{24f4b4c type=2000 android.os.BinderProxy@c4ba89e} 09-02 21:53:33.049#100 parentId=15}
+RequestedLayerState{Window:7c5b0aa type=2000 StatusBar 09-02 21:53:33.050#101 parentId=228916}
+RequestedLayerState{VivoMultiTaskUiManager 09-06 00:56:42.485#26714 parentId=61 z=-1}
+RequestedLayerState{VivoMultiTaskView 09-06 00:56:42.486#26716 parentId=26715}
+RequestedLayerState{StatusBar 09-02 21:53:33.288#104 parentId=101}
+RequestedLayerState{VivoMultiTaskLeftRightRecyclerViewLeash 09-15 04:50:23.781#93355 parentId=93354}
+RequestedLayerState{Window:10d1be3 type=2 HiBoard 09-30 03:00:07.940#201280 parentId=65 z=1}
+RequestedLayerState{[BBQ] FakeStatusBar 09-02 21:53:24.907#51#116 parentId=51}
+RequestedLayerState{[BBQ] FakeGestureBar 09-02 21:53:24.908#52#117 parentId=52}
+RequestedLayerState{WindowToken{b5f8f34 type=2038 android.os.BinderProxy@633e207} 09-18 09:11:44.292#115442 parentId=11 z=3}
+RequestedLayerState{Task=14330 09-23 14:31:12.099#147906 z=4}
+RequestedLayerState{DefaultTaskDisplayArea 09-20 05:35:41.960#124585 parentId=124583 z=1}
+RequestedLayerState{Window:f70553d type=2003 Show_Taskbar_Tips 09-29 21:15:43.346#196255 parentId=196254}
+RequestedLayerState{WindowToken{7a8bc8b type=2011 android.os.Binder@e9a5205} 09-02 21:53:47.425#128 parentId=13}
+RequestedLayerState{ActivityRecord{110576256 u0 com.tencent.mm/.ui.EmptyActivity t14771 d0} 10-01 16:11:47.960#228273 parentId=228255}
+RequestedLayerState{Input Overlays 09-20 05:35:41.962#124593 parentId=124591 z=2147483646}
+RequestedLayerState{VivoMultiTaskLeftRightRecyclerViewManager 09-15 04:50:23.781#93354 parentId=61 z=15}
+RequestedLayerState{Surface(name=FakeGestureBar)/@0x545763 - animation-leash of window_animation 09-23 14:31:12.096#147905 z=2147483644}
+RequestedLayerState{Accessibility Overlays 09-20 05:35:41.963#124594 parentId=124591 z=2147483645}
+RequestedLayerState{SideSlideGestureBar-Right 10-01 15:37:51.811#226982 parentId=95}
+RequestedLayerState{Display 90000 name="vivo_rms_screen" 09-20 05:35:41.962#124591 layerStack=90000}
+RequestedLayerState{Leaf:32:36 09-20 05:35:41.962#124590 parentId=124591 z=1}
+RequestedLayerState{HiBoard 09-30 22:15:41.860#211021}
+RequestedLayerState{ActivityRecord{223673673 u0 com.android.filemanager/.FileManagerActivity t14772 d0} 10-01 16:11:54.590#228316 parentId=228315}
+RequestedLayerState{Task=14756 10-01 13:40:32.956#226005 z=9}
+RequestedLayerState{[BBQ] ttPlayer 10-01 16:10:03.392#228160#228161 parentId=228160}
+RequestedLayerState{WindowedMagnification:0:31 09-20 05:35:41.957#124583 parentId=124591}
+RequestedLayerState{Task=14623 09-30 21:35:09.590#208559 z=4}
+RequestedLayerState{[BBQ] drag surface 10-01 15:53:47.116#227926#227927 parentId=227926 !handle}
+RequestedLayerState{Task=14630 09-30 21:41:53.264#209225 z=5}
+RequestedLayerState{Leaf:0:1 09-20 05:35:41.959#124584 parentId=124583}
+RequestedLayerState{Leaf:15:31 09-20 05:35:41.961#124589 parentId=124583 z=4}
+RequestedLayerState{IconNotiBadageWindow 09-30 09:57:12.070#201430}
+RequestedLayerState{Window:488a768 type=1 com.bbk.launcher2/com.bbk.launcher2.Launcher 09-30 03:00:07.814#201279 parentId=65}
+RequestedLayerState{Window:8d6a49c type=2011 InputMethod 10-01 03:46:13.150#220406 parentId=228872}
+RequestedLayerState{WindowToken{5c25ae7 type=2003 android.os.BinderProxy@e8690a6} 09-29 21:15:43.340#196254 parentId=11 z=6}
+RequestedLayerState{Leaf:3:12 09-20 05:35:41.960#124586 parentId=124583 z=2}
+RequestedLayerState{VivoMultiTaskViewLeash 09-06 00:56:42.485#26715 parentId=26714}
+RequestedLayerState{[BBQ] Sprite#195938#195939 parentId=195938}
+RequestedLayerState{Surface(name=WindowToken{e981503 type=2024 android.os.BinderProxy@2ecb1b2})/@0x7a0c80 - animation-leash of window_animation 09-23 14:31:12.095#147904 z=2147483644}
+RequestedLayerState{IconNotiBadageWindow 09-30 09:57:12.070#201428 z=1}
+RequestedLayerState{Window:2a84ce7 type=2038 DockPanel 09-30 03:00:07.522#201278 parentId=201277}
+RequestedLayerState{IconWindow 09-30 09:57:12.070#201431 z=1}
+RequestedLayerState{ImeContainer 09-20 05:35:41.961#124588 parentId=124587 relativeParentId=124587 z=1}
+RequestedLayerState{VivoMultiTaskLeftRightRecyclerView 09-15 04:50:23.781#93356 parentId=93355}
+RequestedLayerState{IconNotiBadageWindow 09-30 09:57:12.071#201434}
+RequestedLayerState{Surface(name=WallpaperWindowToken{14de7ff showWhenLocked=false})/@0x4a3051b - rotation-leash 09-07 14:02:48.343#43073 parentId=8 !handle z=1}
+RequestedLayerState{Surface(name=FakeStatusBar)/@0xa810192 - animation-leash of window_animation 09-23 14:31:12.095#147903 z=2147483644}
+RequestedLayerState{WindowToken{b4354f4 type=2009 android.os.BinderProxy@95826c7} 10-01 14:52:13.541#226812 parentId=26}
+RequestedLayerState{IME Handwriting Surface 10-01 03:46:13.132#220405 parentId=49 z=2}
+RequestedLayerState{ActivityRecord{102898881 u0 com.ss.android.ugc.aweme/.splash.SplashActivity t14769 d0} 10-01 15:49:10.690#227859 parentId=227858}
+RequestedLayerState{ImePlaceholder:13:14 09-20 05:35:41.960#124587 parentId=124583 z=3}
+RequestedLayerState{Shell Root Leash 0 09-18 09:11:44.293#115443 parentId=115442}
+RequestedLayerState{Surface(name=WindowToken{24f4b4c type=2000 android.os.BinderProxy@c4ba89e})/@0xd7c6795 - animation-leash of window_animation 09-23 14:31:12.094#147902 z=2147483644}
+RequestedLayerState{WindowToken{7113c01 type=2038 android.os.BinderProxy@3123de8} 09-30 03:00:07.521#201277 parentId=11 z=4}
+RequestedLayerState{Task=14732 10-01 12:45:37.747#224306 z=1}
+RequestedLayerState{IconWindow 09-30 09:57:12.070#201429}
+RequestedLayerState{Display Overlays 09-20 05:35:41.962#124592 parentId=124591 z=2147483647}
+RequestedLayerState{IconWindow 09-30 09:57:12.070#201427 z=1}
+RequestedLayerState{Sprite#195938 parentId=48 z=351000}
+RequestedLayerState{[Gesture Monitor] swipe-up 09-30 03:00:07.131#201276 parentId=49 z=1}
+RequestedLayerState{Task=14642 09-30 22:46:09.937#212202 z=6}
+RequestedLayerState{Surface(name=Task=14573)/@0xc91da0d_com.tencent.mm_transition-leash 09-30 09:48:56.453#201370 z=7}
+RequestedLayerState{IconWindow 09-30 09:57:12.071#201433}
+RequestedLayerState{ttPlayer 10-01 16:10:03.392#228160}
+RequestedLayerState{Window:cfcc84a type=2 com.vivo.globalsearch.searchwindow 10-01 13:34:27.382#224945 parentId=65 z=2}
+RequestedLayerState{Surface(name=Task=14573)/@0xd950a43__transition-leash 09-30 09:49:09.764#201379 z=7}
+RequestedLayerState{Task=14575 09-30 09:58:27.131#201538 z=1}
+RequestedLayerState{WindowToken{f5d23aa type=2011 android.os.Binder@dcdc695} 09-30 21:45:31.551#209396 parentId=13 z=1}
+RequestedLayerState{IconNotiBadageWindow 09-30 09:57:12.070#201432 z=1}
+RequestedLayerState{Task=14574 09-30 09:57:16.542#201437 z=4}
+RequestedLayerState{Task=14769 10-01 15:49:10.689#227858 parentId=10 z=4}
+RequestedLayerState{ttPlayer 10-01 16:10:02.450#228155}
+RequestedLayerState{SideSlideGestureBar-Left 10-01 15:37:51.799#226980 parentId=92}
+RequestedLayerState{Task=14772 10-01 16:11:54.589#228315 parentId=10 z=7}
+RequestedLayerState{[BBQ] ttPlayer 10-01 16:10:02.450#228155#228156 parentId=228155}
+RequestedLayerState{ActivityRecord{46745080 u0 com.lightframe.monitor/.MainActivity t14774 d0} 10-01 16:12:15.690#228467 parentId=228466}
+RequestedLayerState{Window:a66a1 type=1 com.ss.android.ugc.aweme/com.ss.android.ugc.aweme.splash.SplashActivity 10-01 15:49:11.456#227873 parentId=227859}
+RequestedLayerState{Surface(name=Window:8d6a49c type=2011 InputMethod)/@0x5a3727a - animation-leash of insets_animation 10-01 16:14:25.643#228872 parentId=128}
+RequestedLayerState{Window:7891696 type=1 com.tencent.mm/com.tencent.mm.ui.chatting.ChattingUI 10-01 16:11:49.354#228290 parentId=228289}
+RequestedLayerState{Window:d0bcceb type=1 com.tencent.mm/com.tencent.mm.ui.EmptyActivity 10-01 16:11:48.300#228278 parentId=228273}
+RequestedLayerState{ActivityRecord{13129646 u0 com.tencent.mm/.ui.chatting.ChattingUI t14771 d0} 10-01 16:11:49.216#228289 parentId=228255 z=2}
+RequestedLayerState{com.lightframe.monitor/com.lightframe.monitor.MainActivity 10-01 16:14:25.593#228867 parentId=228475}
+RequestedLayerState{Window:ccaf8bf type=1 tv.danmaku.bilibilihd/tv.danmaku.bili.MainActivityV2 10-01 16:10:12.599#228190 parentId=228176}
+RequestedLayerState{drag surface 10-01 15:53:47.116#227926}
+RequestedLayerState{Dim Layer for - Task=14776 10-01 16:12:23.786#228531 parentId=47 !handle z=-1}
+RequestedLayerState{ActivityRecord{217300456 u0 tv.danmaku.bilibilihd/tv.danmaku.bili.MainActivityV2 t14770 d0} 10-01 16:10:12.033#228176 parentId=228175}
+RequestedLayerState{Window:14d3f0 type=1 com.android.filemanager/com.android.filemanager.FileManagerActivity 10-01 16:11:54.778#228330 parentId=228316}
+RequestedLayerState{Window:14195d4 type=1 com.tencent.mm/com.tencent.mm.ui.chatting.AppAttachNewDownloadUI 10-01 16:11:50.943#228297 parentId=228296}
+RequestedLayerState{Task=14771 10-01 16:11:47.667#228255 parentId=10 z=6}
+RequestedLayerState{ActivityRecord{143922349 u0 com.tencent.mm/.ui.LauncherUI t14771 d0} 10-01 16:11:47.668#228256 parentId=228255 z=1}
+RequestedLayerState{ActivityRecord{167871039 u0 com.tencent.mm/.ui.chatting.AppAttachNewDownloadUI t14771 d0} 10-01 16:11:50.864#228296 parentId=228255 z=3}
+RequestedLayerState{MultiLandscapeDivider_taskId_14771  10-01 16:11:48.033#228276 parentId=228275}
+RequestedLayerState{SmartIsland 10-01 16:14:23.666#228858 parentId=228779}
+RequestedLayerState{Sprite#228841 parentId=48 z=351001}
+RequestedLayerState{Task=14774 10-01 16:12:15.689#228466 parentId=10 z=10}
+RequestedLayerState{WindowToken{c64b7af type=2038 android.os.BinderProxy@448c38e} 10-01 16:12:57.438#228669 parentId=11 z=5}
+RequestedLayerState{Window:a68b345 type=2038 com.lightframe.monitor 10-01 16:12:57.441#228670 parentId=228669}
+RequestedLayerState{MultiLandscapeDivider_taskId_14771 Leash 10-01 16:11:48.031#228275 parentId=228274}
+RequestedLayerState{MultiLandscapeDivider_taskId_14771  10-01 16:11:48.021#228274 parentId=228255 relativeParentId=228255 z=29999}
+RequestedLayerState{952e95b ActivityRecordInputSink com.lightframe.monitor/.MainActivity 10-01 16:14:25.613#228871 parentId=228467 z=-2147483648}
+RequestedLayerState{Window:3cb575a type=1 com.tencent.mm/com.tencent.mm.ui.LauncherUI 10-01 16:11:47.944#228267 parentId=228256}
+RequestedLayerState{Window:ab28221 type=1 moe.shizuku.privileged.api/moe.shizuku.manager.MainActivity 10-01 16:12:22.634#228512 parentId=228498}
+RequestedLayerState{ActivityRecord{143861403 u0 moe.shizuku.privileged.api/moe.shizuku.manager.MainActivity t14775 d0} 10-01 16:12:22.553#228498 parentId=228497}
+RequestedLayerState{Task=14775 10-01 16:12:22.551#228497 parentId=10 z=8}
+RequestedLayerState{Window:7ab7a9 type=1 com.lightframe.monitor/com.lightframe.monitor.MainActivity 10-01 16:12:15.783#228475 parentId=228467}
+RequestedLayerState{[BBQ] Sprite#228839#228840 parentId=228839}
+RequestedLayerState{#228671 parentId=228670}
+RequestedLayerState{Task=14777 10-01 16:13:07.241#228685 z=10}
+RequestedLayerState{[BBQ] Sprite#228841#228842 parentId=228841}
+RequestedLayerState{Sprite#228839 parentId=48 z=351002}
+RequestedLayerState{WindowingLayer:0:36 10-01 16:13:27.677#228766}
+RequestedLayerState{Leaf:0:1 10-01 16:13:27.679#228767 parentId=228766}
+RequestedLayerState{DefaultTaskDisplayArea 10-01 16:13:27.679#228768 parentId=228766 z=1}
+RequestedLayerState{Leaf:3:12 10-01 16:13:27.679#228769 parentId=228766 z=2}
+RequestedLayerState{ImeContainer 10-01 16:13:27.680#228770 parentId=228766 relativeParentId=228766 z=1}
+RequestedLayerState{Leaf:15:36 10-01 16:13:27.680#228771 parentId=228766 z=4}
+RequestedLayerState{Display 6 name="VivoScreenRecorder" 10-01 16:13:27.681#228772 layerStack=6}
+RequestedLayerState{Display Overlays 10-01 16:13:27.681#228773 z=2147483647}
+RequestedLayerState{Input Overlays 10-01 16:13:27.682#228774 parentId=228772 z=2147483646}
+RequestedLayerState{Accessibility Overlays 10-01 16:13:27.682#228775 parentId=228772 z=2147483645}
+RequestedLayerState{MirrorRoot#228777 parentId=228772}
+RequestedLayerState{WindowToken{f68ed2 type=2009 android.os.BinderProxy@6e8e334} 10-01 16:13:27.909#228778 parentId=26 z=1}
+RequestedLayerState{Window:fcafea0 type=2009 SmartIsland 10-01 16:13:27.912#228779 parentId=228778}
+RequestedLayerState{WindowToken{d45b771 type=2032 android.os.Binder@706c118} 10-01 16:13:37.694#228833 parentId=36 z=1}
+RequestedLayerState{Sprite#228781 parentId=48 z=351001}
+RequestedLayerState{[BBQ] Sprite#228781#228782 parentId=228781}
+RequestedLayerState{Task=14778 10-01 16:13:31.867#228796 parentId=10 z=9}
+RequestedLayerState{ActivityRecord{254488143 u0 com.tencent.tmgp.supercell.clashofclans/com.supercell.titan.tencent.GameAppTencent t14778 d0} 10-01 16:13:31.869#228797 parentId=228796}
+RequestedLayerState{WindowToken{e89b30 type=2032 android.os.Binder@461f073} 10-01 16:13:37.696#228835 parentId=124589 z=1}
+RequestedLayerState{WindowToken{e32d6c4 type=2032 android.os.Binder@d504dd7} 10-01 16:13:37.696#228834 parentId=228771}
+RequestedLayerState{Bounds for - com.tencent.tmgp.supercell.clashofclans/com.supercell.titan.tencent.GameAppTencent 10-01 16:13:32.080#228815 parentId=228813 !handle}
+RequestedLayerState{Surface(name=WallpaperWindowToken{14de7ff showWhenLocked=false})/@0x8e811ab__transition-leash 10-01 16:14:36.710#228884 z=-2}
+RequestedLayerState{com.tencent.tmgp.supercell.clashofclans/com.supercell.titan.tencent.GameAppTencent 10-01 16:13:32.075#228813}
+RequestedLayerState{Window:7461b6f type=1 com.tencent.tmgp.supercell.clashofclans/com.supercell.titan.tencent.GameAppTencent 10-01 16:13:32.067#228812 parentId=228797}
+RequestedLayerState{Surface(name=Task=14774)/@0x6d197fa_com.lightframe.monitor_transition-leash 10-01 16:14:36.710#228883 z=23}
+RequestedLayerState{Surface(name=Task=1)/@0xc0e0c6f_com.bbk.launcher2_transition-leash 10-01 16:15:11.257#228904 z=16}
+RequestedLayerState{Surface(name=WindowToken{24f4b4c type=2000 android.os.BinderProxy@c4ba89e})/@0xd7c6795 - animation-leash of window_animation 10-01 16:14:36.703#228876 z=2147483644}
+RequestedLayerState{Surface(name=FakeStatusBar)/@0xa810192 - animation-leash of window_animation 10-01 16:14:36.704#228877 z=2147483644}
+RequestedLayerState{Surface(name=WindowToken{e981503 type=2024 android.os.BinderProxy@2ecb1b2})/@0x7a0c80 - animation-leash of window_animation 10-01 16:14:36.705#228878 z=2147483644}
+RequestedLayerState{Surface(name=FakeGestureBar)/@0x545763 - animation-leash of window_animation 10-01 16:14:36.705#228879 z=2147483644}
+RequestedLayerState{Surface(name=WallpaperWindowToken{cbf901c showWhenLocked=false})/@0x573d008__transition-leash 10-01 16:14:36.710#228885 z=-11}
+RequestedLayerState{Surface(name=Task=1)/@0x3551a25_com.bbk.launcher2_transition-leash 10-01 16:14:36.709#228881 z=16}
+RequestedLayerState{Surface(name=WallpaperWindowToken{cbf901c showWhenLocked=false})/@0x47765a__transition-leash 10-01 16:15:11.258#228907 z=-11}
+RequestedLayerState{Surface(name=FakeGestureBar)/@0x545763 - animation-leash of window_animation 10-01 16:15:11.253#228902 z=2147483644}
+RequestedLayerState{Surface(name=Window:7c5b0aa type=2000 StatusBar)/@0xfcbd038 - animation-leash of insets_animation 10-01 16:15:38.794#228916 parentId=100}
+RequestedLayerState{Surface(name=WallpaperWindowToken{14de7ff showWhenLocked=false})/@0x557f605__transition-leash 10-01 16:15:11.258#228906 z=-2}
+RequestedLayerState{Surface(name=Task=14774)/@0x69f4d7c_com.lightframe.monitor_transition-leash 10-01 16:15:11.258#228905 z=23}
+RequestedLayerState{Surface(name=WindowToken{24f4b4c type=2000 android.os.BinderProxy@c4ba89e})/@0xd7c6795 - animation-leash of window_animation 10-01 16:15:11.252#228899 z=2147483644}
+RequestedLayerState{Surface(name=FakeStatusBar)/@0xa810192 - animation-leash of window_animation 10-01 16:15:11.253#228900 z=2147483644}
+RequestedLayerState{Surface(name=WindowToken{e981503 type=2024 android.os.BinderProxy@2ecb1b2})/@0x7a0c80 - animation-leash of window_animation 10-01 16:15:11.253#228901 z=2147483644}
+RequestedLayerState{WindowToken{9d5949d type=2005 android.os.Binder@89c6774} 10-01 16:16:13.846#228931 parentId=11 z=1}
+RequestedLayerState{Window:3fbdd99 type=2005 Toast 10-01 16:16:13.876#228932 parentId=228931}
