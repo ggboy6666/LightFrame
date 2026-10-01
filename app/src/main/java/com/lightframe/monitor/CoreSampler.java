@@ -15,7 +15,10 @@ public final class CoreSampler implements Closeable {
  private final List<String> policies=new ArrayList<>(),cpuTemps=new ArrayList<>(),gpuTemps=new ArrayList<>(),socTemps=new ArrayList<>();
  private final List<String> gpuFreqs=new ArrayList<>(),gpuLoads=new ArrayList<>();
  private final ExecutorService dumps=Executors.newSingleThreadExecutor();
- private long[] lastCpu,lastNet;private long lastNetNs,lastLayerScan,lastFrameError;private String selectedLayer="",lastFilter="";private IBinder surface;
+ private long[] lastCpu,lastNet;private long lastNetNs,lastLayerScan,lastFrameError;private String selectedLayer="",lastFilter="",lastManual="",frameDetail="尚未读取帧时间";private IBinder surface,thermalService;private FrameDiscovery frameDiscovery;
+ private String thermalDump="",thermalError="";private long thermalDumpNs;
+ private JSONObject lastFrameSample=new JSONObject();
+ private final Map<String,String> latencySnapshots=new LinkedHashMap<>();
  public CoreSampler(){discover();}
  private String read(String path){if(!Numbers.safeNode(path))return null;try{RandomAccessFile f=nodes.get(path);if(f==null){f=new RandomAccessFile(path,"r");nodes.put(path,f);}f.seek(0);byte[] b=new byte[path.startsWith("/proc/")?32768:4096];int n=f.read(b);errors.remove(path);return n<0?"":new String(b,0,n,StandardCharsets.UTF_8);}catch(Exception e){errors.put(path,e.getClass().getSimpleName()+": "+e.getMessage());return null;}}
  private File[] children(String p){File[] a=new File(p).listFiles();if(a==null)return new File[0];Arrays.sort(a,Comparator.comparing(File::getName));return a;}
@@ -36,30 +39,93 @@ public final class CoreSampler implements Closeable {
    if(freq){if(p.equals(custom)){double unit=cfg.optString("gpuFreqUnit","kHz").equals("Hz")?1e6:cfg.optString("gpuFreqUnit","kHz").equals("MHz")?1:1000;v=Numbers.first(s)/unit;}else if(p.contains("/ged/"))v=Numbers.gedFreq(s);else if(p.contains("/gpufreq"))v=Numbers.mtkFreq(s);else v=Numbers.first(s)/1e6;if(!(v>0&&v<10000))v=Double.NaN;}
    else v=p.endsWith("gpubusy")||p.equals(custom)&&cfg.optString("gpuLoadFormat").equals("busy_total")?Numbers.busy(s):Numbers.percent(s);
    if(Double.isFinite(v)){out.put(freq?"gpuFrequencyStatus":"gpuLoadStatus",p);return v;}
-  }out.put(freq?"gpuFrequencyStatus":"gpuLoadStatus","未读到可用节点（权限或机型差异）");return Double.NaN;
+  }boolean denied=false;for(String p:a){String error=errors.get(p);if(error!=null&&(error.contains("EACCES")||error.contains("Permission denied")))denied=true;}
+  out.put(freq?"gpuFrequencyStatus":"gpuLoadStatus",denied?"系统拒绝当前授权读取 GPU 节点":"系统未提供可读取的 GPU 节点");return Double.NaN;
  }
- private String dump(String... args)throws Exception{
-  if(surface==null)surface=(IBinder)Class.forName("android.os.ServiceManager").getMethod("getService",String.class).invoke(null,"SurfaceFlinger");
-  if(surface==null)throw new IOException("SurfaceFlinger unavailable");
+ private String dump(String... args)throws Exception{return serviceDump("SurfaceFlinger",args);}
+ private String serviceDump(String service,String... args)throws Exception{
+  IBinder binder;
+  if(service.equals("SurfaceFlinger")){if(surface==null)surface=findService(service);binder=surface;}
+  else{if(thermalService==null)thermalService=findService(service);binder=thermalService;}
+  if(binder==null)throw new IOException(service+" unavailable");
   final ParcelFileDescriptor[] pipe=ParcelFileDescriptor.createPipe();Future<String> f=dumps.submit(()->{try(InputStream in=new ParcelFileDescriptor.AutoCloseInputStream(pipe[0]);ByteArrayOutputStream b=new ByteArrayOutputStream()){byte[] buf=new byte[4096];for(int n;(n=in.read(buf))!=-1;){if(b.size()+n>524288)throw new IOException("dump too large");b.write(buf,0,n);}return new String(b.toByteArray(),StandardCharsets.UTF_8);}});
-  try{surface.dumpAsync(pipe[1].getFileDescriptor(),args);pipe[1].close();return f.get(1500,TimeUnit.MILLISECONDS);}finally{try{pipe[0].close();}catch(Exception ignored){}try{pipe[1].close();}catch(Exception ignored){}f.cancel(true);}
+  try{binder.dumpAsync(pipe[1].getFileDescriptor(),args);pipe[1].close();return f.get(args.length>0&&args[0].equals("--latency")?350:1500,TimeUnit.MILLISECONDS);}finally{try{pipe[0].close();}catch(Exception ignored){}try{pipe[1].close();}catch(Exception ignored){}f.cancel(true);}
  }
- private List<String> layerList()throws Exception{String s=dump("--list");ArrayList<String> a=new ArrayList<>();for(String l:s.split("\n"))if(!l.trim().isEmpty())a.add(l.trim());return a;}
+ private IBinder findService(String name)throws Exception{return (IBinder)Class.forName("android.os.ServiceManager").getMethod("getService",String.class).invoke(null,name);}
+ private List<String> layerList()throws Exception{return SurfaceLayers.parse(dump("--list"));}
+ private long[] readPresent(String layer)throws Exception{
+  String raw;try{raw=dump("--latency",layer);}catch(Exception e){rememberLatency(layer,e.toString());throw e;}
+  rememberLatency(layer,raw);String lower=raw.toLowerCase(Locale.ROOT);
+  if(lower.contains("permission denial")||lower.contains("permission denied"))throw new SecurityException("系统拒绝读取帧时间");
+  return Numbers.present(raw);
+ }
+ private void rememberLatency(String layer,String raw){latencySnapshots.remove(layer);latencySnapshots.put(layer,raw.substring(0,Math.min(raw.length(),2048)));while(latencySnapshots.size()>12)latencySnapshots.remove(latencySnapshots.keySet().iterator().next());}
  private boolean useful(String s,String filter){String l=s.toLowerCase(Locale.ROOT);return (filter.isEmpty()||s.contains(filter))&&!l.contains("com.lightframe.monitor")&&!l.contains("systemui")&&!l.contains("launcher")&&!l.contains("inputmethod")&&!l.contains("shizuku")&&!l.contains("statusbar")&&!l.contains("navigationbar");}
+ private void temperatures(JSONObject o,JSONObject cfg,long now,boolean diagnose)throws JSONException{
+  double cpu=thermal(cpuTemps),soc=thermal(socTemps);String path=cfg.optString("gpuTempPath","");
+  double gpu=Numbers.safeNode(path)?Numbers.temp(read(path)):thermal(gpuTemps);
+  boolean missing=!Double.isFinite(cpu)||!Double.isFinite(gpu)||!Double.isFinite(soc);
+  if((missing||diagnose)&&(diagnose||thermalDumpNs==0||now-thermalDumpNs>=5_000_000_000L)){
+   try{thermalDump=serviceDump("thermalservice");thermalError="";}catch(Exception e){thermalDump="";thermalError=e.getClass().getSimpleName()+": "+e.getMessage();}thermalDumpNs=System.nanoTime();
+  }
+  ThermalSnapshot snapshot=ThermalSnapshot.parse(thermalDump);
+  long readAgeMs=Math.max(0,(System.nanoTime()-thermalDumpNs)/1_000_000L);
+  String source=(snapshot.source.equals("current")?"系统温度服务":"系统温度服务缓存（原始更新时间未提供）")+" · 读取于 "+Numbers.display(readAgeMs/1000d,1)+" 秒前";
+  String unavailable=snapshot.permissionDenied?"系统拒绝温度读取":!thermalError.isEmpty()?"温度服务读取失败":"系统未报告此类芯片温度";
+  String cpuStatus=Double.isFinite(cpu)?"系统传感器":unavailable;
+  String gpuStatus=Double.isFinite(gpu)?Numbers.safeNode(path)?path:"系统传感器":Numbers.safeNode(path)?"指定 GPU 温度节点读取失败":unavailable;
+  String socStatus=Double.isFinite(soc)?"系统传感器":unavailable;
+  boolean usedService=false;
+  if(!Double.isFinite(cpu)&&Double.isFinite(snapshot.cpuC)){cpu=snapshot.cpuC;cpuStatus=source;usedService=true;}
+  if(!Double.isFinite(gpu)&&Double.isFinite(snapshot.gpuC)&&!Numbers.safeNode(path)){gpu=snapshot.gpuC;gpuStatus=source;usedService=true;}
+  if(!Double.isFinite(soc)&&Double.isFinite(snapshot.socC)){soc=snapshot.socC;socStatus=source;usedService=true;}
+  put(o,"cpuC",cpu);put(o,"gpuC",gpu);put(o,"socC",soc);
+  o.put("cpuTemperatureStatus",cpuStatus);o.put("gpuTemperatureStatus",gpuStatus);o.put("socTemperatureStatus",socStatus);
+  o.put("thermalServiceStatus",thermalError.isEmpty()?snapshot.status:thermalError);
+  o.put("thermalServiceSource",snapshot.source);o.put("thermalServiceReadNs",thermalDumpNs);
+  o.put("thermalServiceAgeMs",thermalDumpNs==0?JSONObject.NULL:readAgeMs);
+  o.put("temperatureSampleNs",usedService?thermalDumpNs:System.nanoTime());
+  if(diagnose){
+   o.put("thermalServiceRaw",thermalDump.substring(0,Math.min(thermalDump.length(),65536)));
+   if(snapshot.halReady!=null)o.put("thermalHalReady",snapshot.halReady);
+   if(snapshot.thermalStatus>=0)o.put("thermalServiceStatusCode",snapshot.thermalStatus);
+   JSONArray sensors=new JSONArray();for(ThermalSnapshot.Sensor s:snapshot.sensors){JSONObject sensor=new JSONObject();sensor.put("name",s.name);sensor.put("type",s.type);put(sensor,"value",s.value);sensor.put("status",s.status);sensor.put("source",s.source);sensor.put("category",s.category);sensors.put(sensor);}o.put("thermalSensors",sensors);
+  }
+ }
  private void frames(JSONObject o,JSONObject cfg,long now)throws JSONException{
-  if(Process.myUid()!=0&&Process.myUid()!=2000){o.put("frameStatus","FPS 需要已授权的 Shizuku / Root");o.put("present",new JSONArray());return;}
-  String manual=cfg.optString("layer","");String filter=cfg.optString("package","");try{
-   if(now-lastFrameError<5_000_000_000L){o.put("frameStatus","帧接口不可用，稍后重试");o.put("present",new JSONArray());return;}
-   if(!filter.equals(lastFilter)){selectedLayer="";lastLayerScan=0;lastFilter=filter;}
+  o.put("present",new JSONArray());o.put("frameAvailable",false);o.put("layer","");
+  if(Process.myUid()!=0&&Process.myUid()!=2000){o.put("frameStatus","FPS 需要已授权的 Shizuku / Root");return;}
+  String manual=SurfaceLayers.name(cfg.optString("layer",""));String filter=cfg.optString("package","");try{
+   if(!filter.equals(lastFilter)||!manual.equals(lastManual)){selectedLayer="";frameDiscovery=null;lastLayerScan=lastFrameError=0;lastFilter=filter;lastManual=manual;}
+   if(lastFrameError>0&&now-lastFrameError<5_000_000_000L){o.put("frameStatus",frameDetail+"；稍后重试");return;}
+   long[] t=null;
    if(!manual.isEmpty())selectedLayer=manual;
-   if(manual.isEmpty()&&(selectedLayer.isEmpty()||now-lastLayerScan>5_000_000_000L)){
-    lastLayerScan=now;List<String> layers=layerList();layers.sort((a,b)->Boolean.compare(!a.contains("SurfaceView"),!b.contains("SurfaceView")));int probed=0;long newest=0;String candidate="";
-    for(String l:layers)if(useful(l,filter)&&probed++<8){long[] t=Numbers.present(dump("--latency",l));if(t.length>0){long p=t[t.length-1];if(p<=now+100_000_000L&&p>now-2_000_000_000L&&p>newest){candidate=l;newest=p;}}}selectedLayer=candidate;
+   if(!selectedLayer.isEmpty()){
+    t=readPresent(selectedLayer);long current=System.nanoTime();
+    if(t.length==0||t[t.length-1]<current-3_000_000_000L||t[t.length-1]>current+100_000_000L){
+     if(!manual.isEmpty()){frameDetail="指定图层没有返回最近的帧时间";o.put("frameStatus",frameDetail);lastFrameError=now;return;}
+     selectedLayer="";t=null;frameDiscovery=null;lastLayerScan=0;
+    }
    }
-   if(selectedLayer.isEmpty()){o.put("frameStatus","未发现活动图层；可指定包名或图层");o.put("present",new JSONArray());return;}
-   long[] t=Numbers.present(dump("--latency",selectedLayer));JSONArray a=new JSONArray();for(long p:t)a.put(p);o.put("present",a);o.put("layer",selectedLayer);o.put("frameStatus",t.length==0?"图层未返回帧时间；请尝试其他图层":"SurfaceFlinger 实际呈现时间");
-   if(t.length>0&&now-t[t.length-1]>3_000_000_000L&&manual.isEmpty())selectedLayer="";
-  }catch(Exception e){lastFrameError=now;o.put("present",new JSONArray());o.put("frameStatus","帧接口: "+e.getClass().getSimpleName()+" "+e.getMessage());}
+   if(!selectedLayer.isEmpty()&&manual.isEmpty()){
+    if(frameDiscovery==null&&now-lastLayerScan>=5_000_000_000L){lastLayerScan=now;List<String> candidates=SurfaceLayers.rank(layerList(),filter);for(Iterator<String> it=candidates.iterator();it.hasNext();)if(!useful(it.next(),filter))it.remove();frameDiscovery=new FrameDiscovery(candidates);}
+    if(frameDiscovery!=null){FrameDiscovery.Result other=frameDiscovery.advance(this::readPresent,System.nanoTime(),3,150_000_000L);o.put("frameProbeCount",frameDiscovery.cursor);o.put("frameCandidateCount",frameDiscovery.candidates.size());o.put("frameProbeFailures",frameDiscovery.failures);if(other!=null&&other.present[other.present.length-1]>t[t.length-1]){selectedLayer=other.layer;t=other.present;}if(frameDiscovery.finished()){frameDiscovery=null;lastLayerScan=System.nanoTime();}}
+   }
+   if(selectedLayer.isEmpty()){
+    if(frameDiscovery==null&&(lastLayerScan==0||now-lastLayerScan>=5_000_000_000L)){
+     lastLayerScan=now;List<String> a=SurfaceLayers.rank(layerList(),filter);for(Iterator<String> it=a.iterator();it.hasNext();)if(!useful(it.next(),filter))it.remove();frameDiscovery=new FrameDiscovery(a);
+    }
+    if(frameDiscovery!=null){
+     FrameDiscovery.Result found=frameDiscovery.advance(this::readPresent,System.nanoTime(),3,150_000_000L);
+     o.put("frameProbeCount",frameDiscovery.cursor);o.put("frameCandidateCount",frameDiscovery.candidates.size());o.put("frameProbeFailures",frameDiscovery.failures);
+     if(found!=null){selectedLayer=found.layer;t=found.present;frameDiscovery=null;}
+     else if(frameDiscovery.finished()){frameDetail=frameDiscovery.failures==frameDiscovery.candidates.size()&&frameDiscovery.failures>0?"候选图层读取失败："+frameDiscovery.lastError:"未发现返回最近帧时间的图层；可填写目标游戏包名";frameDiscovery=null;lastLayerScan=System.nanoTime();}
+     else frameDetail="正在查找活动图层（"+frameDiscovery.cursor+" / "+frameDiscovery.candidates.size()+"）";
+    }
+    if(selectedLayer.isEmpty()){o.put("frameStatus",frameDetail);return;}
+   }
+   JSONArray a=new JSONArray();for(long p:t)a.put(p);o.put("present",a);o.put("layer",selectedLayer);o.put("frameAvailable",true);frameDetail="已读取实际呈现帧时间";o.put("frameStatus",frameDetail);
+  }catch(Exception e){lastFrameError=now;selectedLayer="";frameDiscovery=null;frameDetail="帧接口读取失败："+e.getClass().getSimpleName()+" "+e.getMessage();o.put("frameStatus",frameDetail);}
  }
  public synchronized JSONObject handle(JSONObject req)throws Exception{
   String op=req.optString("op","sample");JSONObject cfg=req.optJSONObject("config");if(cfg==null)cfg=new JSONObject();JSONObject o=new JSONObject();long now=System.nanoTime();o.put("uid",Process.myUid());o.put("nowNs",now);
@@ -71,10 +137,14 @@ public final class CoreSampler implements Closeable {
    String mem=read("/proc/meminfo");double total=Numbers.mem(mem,"MemTotal"),avail=Numbers.mem(mem,"MemAvailable");put(o,"ramTotalMB",total);put(o,"ramUsedMB",total-avail);
    long[] net=Numbers.net(read("/proc/net/dev"));double sec=(now-lastNetNs)/1e9;put(o,"rxKBs",net!=null&&lastNet!=null&&sec>0?Math.max(0,net[0]-lastNet[0])/1024/sec:Double.NaN);put(o,"txKBs",net!=null&&lastNet!=null&&sec>0?Math.max(0,net[1]-lastNet[1])/1024/sec:Double.NaN);lastNet=net;lastNetNs=now;o.put("hardwareSampleNs",System.nanoTime());
   }
-  if(req.optBoolean("temperatures",true)||op.equals("diagnose")){put(o,"cpuC",thermal(cpuTemps));put(o,"socC",thermal(socTemps));String path=cfg.optString("gpuTempPath","");double t=Numbers.safeNode(path)?Numbers.temp(read(path)):thermal(gpuTemps);put(o,"gpuC",t);o.put("gpuTemperatureStatus",Double.isFinite(t)?Numbers.safeNode(path)?path:gpuTemps.toString():"未读到 GPU 温度；未用电池温度替代");o.put("temperatureSampleNs",System.nanoTime());}
-  if(req.optBoolean("frames",true))frames(o,cfg,now);
+  if(req.optBoolean("temperatures",true)||op.equals("diagnose"))temperatures(o,cfg,now,op.equals("diagnose"));
+  if(op.equals("diagnose"))o.put("lastFrameSample",lastFrameSample);
+  if(req.optBoolean("frames",true)||op.equals("diagnose")){
+   frames(o,cfg,now);
+   if(op.equals("sample")){lastFrameSample=new JSONObject();for(String k:new String[]{"nowNs","layer","frameStatus","frameAvailable","frameProbeCount","frameCandidateCount","frameProbeFailures"})if(o.has(k))lastFrameSample.put(k,o.get(k));lastFrameSample.put("returnedFrameTimes",o.optJSONArray("present").length());}
+  }
   o.put("helperCpuMs",Process.getElapsedCpuTime());if(req.optBoolean("hardware",true)||op.equals("diagnose"))put(o,"helperRssMB",Numbers.mem(read("/proc/self/status"),"VmRSS"));
-  if(op.equals("diagnose")){JSONObject detail=new JSONObject();Set<String> probes=new LinkedHashSet<>();probes.addAll(gpuFreqs);probes.addAll(gpuLoads);probes.addAll(cpuTemps);probes.addAll(gpuTemps);probes.addAll(socTemps);probes.addAll(policies);for(String p:probes){String v=read(p);detail.put(p,v==null?errors.get(p):v.substring(0,Math.min(v.length(),512)));}for(File f:children("/sys/class/thermal"))if(f.getName().startsWith("thermal_zone"))detail.put(f+"/type",read(f+"/type"));o.put("nodes",detail);try{o.put("layers",new JSONArray(layerList()));}catch(Exception e){o.put("layerError",e.toString());}Debug.MemoryInfo mi=new Debug.MemoryInfo();Debug.getMemoryInfo(mi);o.put("collectorPssMB",mi.getTotalPss()/1024d);}
+  if(op.equals("diagnose")){o.put("version",Config.VERSION);o.put("config",cfg);o.put("latencyProbeSamples",new JSONObject(latencySnapshots));JSONObject detail=new JSONObject();Set<String> probes=new LinkedHashSet<>();probes.addAll(gpuFreqs);probes.addAll(gpuLoads);probes.addAll(cpuTemps);probes.addAll(gpuTemps);probes.addAll(socTemps);probes.addAll(policies);for(String p:probes){String v=read(p);detail.put(p,v==null?errors.get(p):v.substring(0,Math.min(v.length(),512)));}for(File f:children("/sys/class/thermal"))if(f.getName().startsWith("thermal_zone"))detail.put(f+"/type",read(f+"/type"));o.put("nodes",detail);try{String raw=dump("--list");o.put("layersRaw",raw);o.put("layers",new JSONArray(SurfaceLayers.parse(raw)));}catch(Exception e){o.put("layerError",e.toString());}Debug.MemoryInfo mi=new Debug.MemoryInfo();Debug.getMemoryInfo(mi);o.put("collectorPssMB",mi.getTotalPss()/1024d);}
   return o;
  }
  public synchronized void close(){for(RandomAccessFile f:nodes.values())try{f.close();}catch(Exception ignored){}nodes.clear();dumps.shutdownNow();}

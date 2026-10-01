@@ -6,6 +6,8 @@ public final class FrameStats {
  private final long[] counts=new long[8192]; private final double[] sums=new double[8192];
  private long last,floor; public long count,longFrames,bigLongFrames; private double totalMs,lastMs=Double.NaN;
  public final double[] tail=new double[60]; public int tailCount,tailPos;
+ private String source="";private boolean sourceSeen;
+ public boolean updateSource(String next,long now){if(next==null)next="";if(next.equals(source))return false;if(sourceSeen)discontinuity(now);source=next;if(!next.isEmpty())sourceSeen=true;return true;}
  public void discontinuity(long ns){last=0;recent.clear();floor=Math.max(floor,ns);lastMs=Double.NaN;tailCount=tailPos=0;}
  public boolean add(long ns,double targetFps){if(ns<=floor||ns<=last)return false;if(last>0){double ms=(ns-last)/1e6;if(ms>0){count++;totalMs+=ms;int b=(int)Math.min(8191,ms*2);counts[b]++;sums[b]+=ms;lastMs=ms;tail[tailPos++%60]=ms;tailCount=Math.min(60,tailCount+1);double budget=1000/Math.max(1,targetFps);if(ms>budget*1.5)longFrames++;if(ms>budget*3)bigLongFrames++;}}last=ns;recent.add(ns);while(recent.size()>2048)recent.removeFirst();return true;}
  public double fps(long now){while(recent.size()>2){Iterator<Long> it=recent.iterator();it.next();if(it.next()<now-1_000_000_000L)recent.removeFirst();else break;}if(recent.size()<2)return Double.NaN;if(now-recent.peekLast()>1_000_000_000L)return 0;return (recent.size()-1)*1e9/(Math.max(now,recent.peekLast())-recent.peekFirst());}

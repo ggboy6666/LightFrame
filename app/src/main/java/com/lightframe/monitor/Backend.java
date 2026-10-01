@@ -15,7 +15,7 @@ public abstract class Backend implements Closeable {
  private static class Remote extends Backend{
   volatile IBinder binder;final Shizuku.UserServiceArgs args;final ServiceConnection conn;
   Remote(Context c)throws Exception{
-   args=new Shizuku.UserServiceArgs(new ComponentName(c,CollectorBinder.class)).daemon(false).processNameSuffix("collector").debuggable(false).version(2).tag("lightframe-collector");final CountDownLatch ready=new CountDownLatch(1);
+   args=new Shizuku.UserServiceArgs(new ComponentName(c,CollectorBinder.class)).daemon(false).processNameSuffix("collector").debuggable(false).version(Config.VERSION_CODE).tag("lightframe-collector");final CountDownLatch ready=new CountDownLatch(1);
    conn=new ServiceConnection(){public void onServiceConnected(ComponentName n,IBinder b){binder=b;ready.countDown();}public void onServiceDisconnected(ComponentName n){binder=null;}};
    try{Shizuku.bindUserService(args,conn);if(!ready.await(12,TimeUnit.SECONDS)||binder==null)throw new IOException("Shizuku 采集进程连接超时");JSONObject hello=new JSONObject();hello.put("frames",false);hello.put("hardware",false);hello.put("temperatures",false);uid=request(hello).getInt("uid");name=uid==0?"Shizuku / Sui (Root)":"Shizuku (Shell)";}catch(Exception e){close();throw e;}
   }
