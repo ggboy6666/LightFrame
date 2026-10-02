@@ -2,7 +2,15 @@
 
 2026-10-01，用户选择同时推进现有授权整合和内置无线 ADB 研究。
 
-## 这台设备目前的结论
+## 0.2.5 实机更新（2026-10-02）
+
+在未 Root 的 vivo PA2573 / Android 16 上，Shell UID 2000 可以读取 Perfetto `power/gpu_work_period` 和 `power/gpu_frequency`。0.2.5 已接入这条通道，游戏短时测试返回 GPU 工作忙碌率约 87.5%–88.6%，无需放开原有 `/sys` 节点权限。该数字表示同一 GPU 已报告完整工作时间的并集占比，保护内容可能未报告；它不是核心利用比例，也不保证覆盖全部硬件工作。
+
+追踪约 8 秒完成后才解析，验证时钟、结束与刷新完成、缓冲丢失等证据，再发布延迟的 1 秒窗口。无完整工作区间或追踪不完整时显示缺失原因；暂停 / 结束清理自己的子进程和临时文件。其他厂商、系统版本及设备不自动列为已适配。具体证据与短时测试范围见 [0.2.5 验证记录](VALIDATION-0.2.5.md)。
+
+当前保持 Shizuku / Root 授权向导，没有加入可用的内置无线 ADB 启动器。液冷不改变权限；本机没有已验证的无 Root 超频接口，未修改频率、电压或温控。
+
+## 0.2.4 时的设备结论（历史记录）
 
 LightFrame-diagnostics (4).txt 证实 vivo PA2573 / Android 16 的 Shizuku 采集 UID 为 2000，GPU 使用率、当前频率节点均未取得可信值。前台任务接口已在设备上成功读取。GPU 温度服务有读数，但温度不是 GPU 使用率。
 
@@ -22,8 +30,8 @@ LightFrame-diagnostics (4).txt 证实 vivo PA2573 / Android 16 的 Shizuku 采�
 
 现有 Shizuku 的内部配对服务未导出，普通第三方应用不能通过一个 Intent 调用其内部配对入口。完全内置需要实现自己的 ADB 配对和连接层。[Shizuku 官方组件声明](https://github.com/RikkaApps/Shizuku/blob/master/manager/src/main/AndroidManifest.xml)
 
-候选为 libadb-android：提供配对、连接和 shell 服务 API，可保存设备本地生成的身份密钥，并对端口变化重新发现。具体落地需验证 Android 16 TLS 配对、进程启动和超时清理、应用更新后的采集器切换，以及手机 / 平板的分屏输入流程。使用 socket 还需要网络权限与 JNI / TLS 依赖；接入时应分开评估采集路径开销和启动器开销。当前 0.2.4 保持原依赖和权限，**没有内置可用的无线 ADB 启动器**。[libadb 官方仓库](https://github.com/MuntashirAkon/libadb-android)
+候选为 libadb-android：提供配对、连接和 shell 服务 API，可保存设备本地生成的身份密钥，并对端口变化重新发现。具体落地需验证 Android 16 TLS 配对、进程启动和超时清理、应用更新后的采集器切换，以及手机 / 平板的分屏输入流程。使用 socket 还需要网络权限与 JNI / TLS 依赖；接入时应分开评估采集路径开销和启动器开销。当前 0.2.5 保持原依赖和权限，**没有内置可用的无线 ADB 启动器**。[libadb 官方仓库](https://github.com/MuntashirAkon/libadb-android)
 
 许可边界：Shizuku 本体 Apache-2.0、API MIT；Sui 本体 GPL-3.0；libadb 有 Apache-2.0 / GPL-3.0 选择，另包含 LGPL 依赖。完整内置前需要保留对应许可并检查选用组件，不应仅把外部 APK 隐藏打包成普通 API。[Shizuku 许可](https://github.com/RikkaApps/Shizuku#license)、[API 许可](https://github.com/RikkaApps/Shizuku-API/blob/master/LICENSE)、[libadb 许可说明](https://github.com/MuntashirAkon/libadb-android#license)
 
-研究结论：现有入口可以集中操作，首启仍需系统配对；自行内置 ADB 可减少额外应用依赖，但不会改变 GPU 的 Shell 权限边界。是否能读取此机的无 Root GPU 利用率，需要实际 Perfetto 计数器证据。
+研究结论：现有入口可以集中操作，首启仍需系统配对；自行内置 ADB 可减少额外应用依赖，但不会改变 GPU 的 Shell 权限边界。0.2.5 已验证这台设备的 GPU 工作区间和频率事件；无线 ADB 内置方案仍需独立实现与验证。

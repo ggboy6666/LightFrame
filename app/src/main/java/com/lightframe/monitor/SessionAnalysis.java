@@ -17,7 +17,7 @@ public final class SessionAnalysis {
   "frameWindowReady","frameWindowStale","frameProbeCount","frameCandidateCount","frameProbeFailures","frameDataAgeMs","frameWindowSpanMs","captureGapCount",
   "foregroundPackage","foregroundStatus","frameSourceVerified","gpuLoadStatus","gpuFrequencyStatus","cpuTemperatureStatus",
   "gpuTemperatureStatus","socTemperatureStatus","thermalServiceStatus","thermalServiceSource","thermalServiceReadNs","thermalServiceAgeMs",
-  "longFramesEstimate","bigLongFramesEstimate"));
+  "longFramesEstimate","bigLongFramesEstimate","gpuLoadKind","gpuWindowBeginNs","gpuWindowEndNs","gpuAgeMs","gpuFrequencySampleNs","gpuFrequencyAgeMs","gpuTraceStatus","gpuTraceError"));
  private SessionAnalysis(){}
  private static Object lock(File dir){String path;try{path=dir.getCanonicalPath();}catch(IOException e){path=dir.getAbsolutePath();}return LOCKS[(path.hashCode()&0x7fffffff)%LOCKS.length];}
  public static JSONObject read(File dir){

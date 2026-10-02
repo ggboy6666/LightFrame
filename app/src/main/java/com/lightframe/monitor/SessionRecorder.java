@@ -12,6 +12,7 @@ public final class SessionRecorder implements Closeable {
  static{
   ArrayList<String> a=new ArrayList<>(Arrays.asList("elapsed_s","unix_ms"));Collections.addAll(a,Config.METRICS);
   Collections.addAll(a,"cpuMHz","thermalStatus","charging","layer","frameStatus","frameAvailable","frameWindowReady","frameWindowStale","frameDataAgeMs","frameWindowSpanMs","captureGapCount","foregroundPackage","foregroundStatus","frameSourceVerified","frameProbeCount","frameCandidateCount","frameProbeFailures","gpuLoadStatus","gpuFrequencyStatus","cpuTemperatureStatus","gpuTemperatureStatus","socTemperatureStatus","thermalServiceStatus","thermalServiceSource","thermalServiceReadNs","thermalServiceAgeMs","paused","longFramesEstimate","bigLongFramesEstimate");
+  Collections.addAll(a,"gpuLoadKind","gpuWindowBeginNs","gpuWindowEndNs","gpuAgeMs","gpuFrequencySampleNs","gpuFrequencyAgeMs","gpuTraceStatus","gpuTraceError");
   for(int i=0;i<16;i++)a.add("cpu"+i+"MHz");COLUMNS=a.toArray(new String[0]);
  }
  public final File dir;
@@ -28,7 +29,9 @@ public final class SessionRecorder implements Closeable {
   samples=writer(new File(dir,"samples.csv"));frameFile=writer(new File(dir,"frames.csv"));samples.write("\uFEFF"+CsvIndex.encode(COLUMNS)+"\n");
   frameFile.write("\uFEFFelapsed_s,present_ns,interval_ms,long_frame_estimate,big_long_frame_estimate,segment,layer,target_fps\n");
   metadata.put("version",Config.VERSION);metadata.put("title",c.title);metadata.put("package",c.packageName);metadata.put("device",Build.MANUFACTURER+" "+Build.MODEL);metadata.put("android",Build.VERSION.RELEASE);metadata.put("backend",backend.name);metadata.put("uid",backend.uid);metadata.put("startedUnixMs",startMs);metadata.put("targetFps",c.targetFps);metadata.put("config",c.json());
-  metadata.put("definitions","录制时保存原始采样和实际呈现帧，仅计算约 1 秒实时 FPS；停止后流式计算全部统计。CPU/RAM: 系统；功率: 电池侧 |电流×电压|；长帧: >1.5 倍目标帧预算估算，严重长帧 >3 倍；1%/0.1% Low: 最慢帧时间均值的倒数，4096ms 内 0.5ms 分桶，以上对数分桶近似。暂停、切换来源和采集缺口不连接成帧间隔。空值代表未取得；数据距今标记异步指标年龄。RSS 含共享页；开销不含 Shizuku 管理器、系统采集处理和 GPU 绘制。网络汇总可能重复计入 VPN。与商业工具的口径不等同。");
+  metadata.put("definitions","录制时保存原始采样和实际呈现帧，仅计算约 1 秒实时 FPS；停止后流式计算全部统计。CPU/RAM: 系统；功率: 电池侧 |电流×电压|；长帧: >1.5 倍目标帧预算估算，严重长帧 >3 倍；1%/0.1% Low: 最慢帧时间均值的倒数，4096ms 内 0.5ms 分桶，以上对数分桶近似。暂停、切换来源和采集缺口不连接成帧间隔。空值代表未取得；数据距今标记异步指标年龄。RSS 含共享页；开销不含 Shizuku 管理器、Perfetto 子进程 / 系统服务、系统采集处理和 GPU 绘制。网络汇总可能重复计入 VPN。与商业工具的口径不等同。");
+  metadata.put("gpuDefinitions","GPU 负载来源随原始行保存。work_activity 为系统 gpu_work_period 报告的完整 GPU 工作区间并集占窗口墙钟时间的比例，跨应用重叠只计算一次；保护内容可能不报告。不是着色器核心利用率。异步窗口起止、窗口距今和频率事件距今单独记录；缺失、部分活跃区间或追踪丢失不填零。");
+  metadata.put("startedMonotonicNs",startNs);
   metadata.put("analysisStatus","pending");frames.discontinuity(startNs);SessionAnalysis.writeAtomic(dir,"metadata.json",metadata);summary("recording","");
  }
  private static BufferedWriter writer(File file)throws IOException{return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file),StandardCharsets.UTF_8),32768);}

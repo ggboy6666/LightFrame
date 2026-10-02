@@ -18,6 +18,8 @@ public final class CoreSampler implements Closeable {
  private final List<String> policies=new ArrayList<>(),cpuTemps=new ArrayList<>(),gpuTemps=new ArrayList<>(),socTemps=new ArrayList<>();
  private final List<String> gpuFreqs=new ArrayList<>(),gpuLoads=new ArrayList<>();
  private final ExecutorService dumps=Executors.newSingleThreadExecutor();
+ private final GpuTraceSession gpuTrace=new GpuTraceSession(Process.myUid(),4);
+ private GpuTraceSession.Snapshot lastGpuTrace;
  private long[] lastCpu,lastNet;private long lastNetNs,lastLayerScan,lastFrameError;private String selectedLayer="",lastFilter="",lastManual="",frameDetail="尚未读取帧时间";private IBinder surface,thermalService;private FrameDiscovery frameDiscovery;
  private String thermalDump="",thermalError="";private long thermalDumpNs;
  private ThermalSnapshot cachedThermal=ThermalSnapshot.parse("");
@@ -46,6 +48,32 @@ public final class CoreSampler implements Closeable {
    if(Double.isFinite(v)){out.put(freq?"gpuFrequencyStatus":"gpuLoadStatus",p);return v;}
   }boolean denied=false;for(String p:a){String error=errors.get(p);if(error!=null&&(error.contains("EACCES")||error.contains("Permission denied")))denied=true;}
   out.put(freq?"gpuFrequencyStatus":"gpuLoadStatus",disabled?"联发科 GPU 负载接口未启用"+(denied?"；其他节点读取受限":""):denied?"系统拒绝当前授权读取 GPU 节点":"系统未提供可读取的 GPU 节点");return Double.NaN;
+ }
+ private void gpuValues(JSONObject out,JSONObject cfg,long now,boolean sampling)throws JSONException{
+  double frequency=gpu(out,cfg,true),load=gpu(out,cfg,false);
+  out.put("gpuLoadKind",Double.isFinite(load)?"node_utilization":"");
+  for(String key:new String[]{"gpuWindowBeginNs","gpuWindowEndNs","gpuAgeMs","gpuFrequencySampleNs","gpuFrequencyAgeMs"})out.put(key,JSONObject.NULL);
+  boolean traceLoad=!Double.isFinite(load)&&cfg.optString("gpuLoadPath","").isEmpty();
+  boolean traceFrequency=!Double.isFinite(frequency)&&cfg.optString("gpuFreqPath","").isEmpty();
+  if((traceLoad||traceFrequency)&&sampling)lastGpuTrace=gpuTrace.poll(now);
+  GpuTraceSession.Snapshot trace=lastGpuTrace;
+  long freshnessNs=Math.max(12_000_000_000L,Math.max(100,Math.min(60000,cfg.optInt("hardwarePeriod",1000)))*1_000_000L+10_000_000_000L);
+  if(trace!=null&&(traceLoad||traceFrequency)){
+   out.put("gpuTraceStatus",trace.status);out.put("gpuTraceError",trace.error);
+   if(traceLoad){
+    if(Double.isFinite(trace.busyPct)&&trace.endNs>0&&now>=trace.endNs&&now-trace.readNs<freshnessNs){
+     load=trace.busyPct;out.put("gpuLoadKind","work_activity");out.put("gpuWindowBeginNs",trace.beginNs);out.put("gpuWindowEndNs",trace.endNs);put(out,"gpuAgeMs",(now-trace.endNs)/1e6);
+     out.put("gpuLoadStatus","系统 GPU 工作忙碌率 · 完整区间并集 / 1 秒窗口 · 约 8 秒更新 · 窗口结束于 "+Numbers.display((now-trace.endNs)/1e9,1)+" 秒前；保护内容可能不报告");
+    }else out.put("gpuLoadStatus",trace.error.isEmpty()?"GPU 工作采样中；正在等待完整窗口":"GPU 工作接口不可用："+trace.error);
+   }
+   if(traceFrequency){
+    if(Double.isFinite(trace.frequencyMHz)&&trace.frequencyNs>0&&now>=trace.frequencyNs&&now-trace.readNs<freshnessNs){
+     frequency=trace.frequencyMHz;out.put("gpuFrequencySampleNs",trace.frequencyNs);put(out,"gpuFrequencyAgeMs",(now-trace.frequencyNs)/1e6);
+     out.put("gpuFrequencyStatus","系统 GPU 频率事件 · 最新已报告频率 · "+Numbers.display((now-trace.frequencyNs)/1e9,1)+" 秒前");
+    }else out.put("gpuFrequencyStatus",trace.error.isEmpty()?"GPU 频率采样中；等待系统频率事件":"GPU 频率事件不可用："+trace.error);
+   }
+  }
+  put(out,"gpuMHz",frequency);put(out,"gpuPct",load);
  }
  private String dump(String... args)throws Exception{return serviceDump("SurfaceFlinger",args);}
  private String serviceDump(String service,String... args)throws Exception{
@@ -143,11 +171,12 @@ public final class CoreSampler implements Closeable {
  }
  private JSONObject collect(JSONObject req)throws Exception{
   String op=req.optString("op","sample");JSONObject cfg=req.optJSONObject("config");if(cfg==null)cfg=new JSONObject();JSONObject o=new JSONObject();long now=System.nanoTime();o.put("uid",Process.myUid());o.put("nowNs",now);
+  if(op.equals("suspend")){gpuTrace.suspend();lastGpuTrace=null;return o;}
   if(op.equals("layers")){JSONArray a=new JSONArray();for(String l:layerList())a.put(l);o.put("layers",a);return o;}
   if(req.optBoolean("hardware",true)||op.equals("diagnose")){
    long[] cpu=Numbers.cpu(read("/proc/stat"));put(o,"cpuPct",Numbers.cpuPct(lastCpu,cpu));lastCpu=cpu;
    JSONArray clocks=new JSONArray();for(int i=0;i<policies.size();i++){double v=Numbers.first(read(policies.get(i)))/1000;put(o,"cpu"+i+"MHz",v);clocks.put(Double.isFinite(v)?v:JSONObject.NULL);}o.put("cpuMHz",clocks);
-   put(o,"gpuMHz",gpu(o,cfg,true));put(o,"gpuPct",gpu(o,cfg,false));
+   gpuValues(o,cfg,now,op.equals("sample"));
    String mem=read("/proc/meminfo");double total=Numbers.mem(mem,"MemTotal"),avail=Numbers.mem(mem,"MemAvailable");put(o,"ramTotalMB",total);put(o,"ramUsedMB",total-avail);
    long[] net=Numbers.net(read("/proc/net/dev"));double sec=(now-lastNetNs)/1e9;put(o,"rxKBs",net!=null&&lastNet!=null&&sec>0?Math.max(0,net[0]-lastNet[0])/1024/sec:Double.NaN);put(o,"txKBs",net!=null&&lastNet!=null&&sec>0?Math.max(0,net[1]-lastNet[1])/1024/sec:Double.NaN);lastNet=net;lastNetNs=now;o.put("hardwareSampleNs",System.nanoTime());
   }
@@ -162,5 +191,5 @@ public final class CoreSampler implements Closeable {
   if(op.equals("diagnose"))o.put("gpuTraceProbe",GpuTraceProbe.query(Process.myUid()));
   return o;
  }
- public synchronized void close(){for(RandomAccessFile f:nodes.values())try{f.close();}catch(Exception ignored){}nodes.clear();dumps.shutdownNow();}
+ public synchronized void close(){gpuTrace.close();lastGpuTrace=null;for(RandomAccessFile f:nodes.values())try{f.close();}catch(Exception ignored){}nodes.clear();dumps.shutdownNow();}
 }
