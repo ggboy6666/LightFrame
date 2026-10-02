@@ -9,7 +9,7 @@ import java.util.Arrays;
 /** Runs without Android or a device. Synthetic packets exercise validity gates. */
 public final class GpuPerfettoTests {
     private static int checks;
-    private static final long S=1_000_000_000L,B=100*S,M=10*S,R=M-2_000_000L;
+    private static final long S=1_000_000_000L,B=100*S,M=10*S,R=M-7_000L;
     private static void check(boolean ok,String why) { ++checks; if(!ok) throw new AssertionError(why); }
     private static void near(double actual,double wanted,String why) {
         check(Math.abs(actual-wanted)<1e-7,why+": "+actual+" wanted "+wanted);
@@ -31,11 +31,23 @@ public final class GpuPerfettoTests {
     }
     private static byte[] packet(byte[]... fields) { return msg(1,bytes(fields)); }
     private static byte[] clock() {
-        return packet(msg(6,bytes(msg(1,bytes(num(1,6),num(2,B))),
-                msg(1,bytes(num(1,3),num(2,M))),msg(1,bytes(num(1,4),num(2,R))))));
+        return clock(0,-2_000_000L,0);
+    }
+    private static byte[] clock(long at,long coarseOffset,long rawOffset) {
+        return packet(msg(6,bytes(msg(1,bytes(num(1,6),num(2,B+at))),
+                msg(1,bytes(num(1,3),num(2,M+at))),
+                msg(1,bytes(num(1,4),num(2,M+at+coarseOffset))),
+                msg(1,bytes(num(1,5),num(2,R+at+rawOffset))))));
     }
     private static byte[] service(int event,long at) {
         return packet(num(8,B+at),msg(69,num(event,1)));
+    }
+    private static byte[] rawService(int event,long at) {
+        return packet(num(8,R+at),num(58,GpuTraceData.CLOCK_MONOTONIC_RAW),msg(69,num(event,1)));
+    }
+    private static byte[] coarseOnlyClock() {
+        return packet(msg(6,bytes(msg(1,bytes(num(1,6),num(2,B))),
+                msg(1,bytes(num(1,3),num(2,M))),msg(1,bytes(num(1,4),num(2,M-2_000_000L))))));
     }
     private static byte[] fstats(int phase,long at,long drop) {
         return packet(num(10,2),msg(34,bytes(num(1,phase),msg(2,bytes(num(1,0),
@@ -51,12 +63,19 @@ public final class GpuPerfettoTests {
     private static byte[] traceStats(long outcome,long loss) {
         return packet(msg(35,bytes(msg(1,num(13,loss)),num(12,1),num(13,1),num(14,0),num(15,outcome))));
     }
+    private static byte[] traceStatsBuffers(long outcome,byte[]... buffers) {
+        ByteArrayOutputStream entries=new ByteArrayOutputStream();
+        for(byte[] buffer:buffers) {
+            byte[] entry=msg(1,buffer); entries.write(entry,0,entry.length);
+        }
+        return packet(msg(35,bytes(entries.toByteArray(),num(12,1),num(13,1),num(14,0),num(15,outcome))));
+    }
     private static byte[] prefix() { return bytes(clock(),service(1,0),fstats(1,0,0)); }
     private static byte[] suffix(long loss) {
         return bytes(service(5,8*S),fstats(2,8*S,0),service(4,8*S),traceStats(1,loss));
     }
     private static GpuTraceData read(byte[] file,int chunk,boolean finish) throws Exception {
-        GpuTraceData reader=new GpuTraceData(4);
+        GpuTraceData reader=new GpuTraceData(GpuTraceData.CLOCK_MONOTONIC_RAW);
         for(int off=0;off<file.length;) {
             int n=Math.min(chunk,file.length-off); reader.feed(file,off,n); off+=n;
         }
@@ -77,6 +96,43 @@ public final class GpuPerfettoTests {
             near(s.frequencyMHz,338,"frequency kHz conversion"); check(s.frequencyNs==M+7*S,"BOOT->MONO");
             check(s.workCount==1 && s.fullWorkCount==1,"counts");
         }
+        check(GpuTraceData.CLOCK_MONOTONIC_RAW==5,"RAW uses Perfetto enum 5, not Linux clockid_t 4");
+        boolean rejectedCoarse=false;
+        try { new GpuTraceData(4); } catch(IllegalArgumentException expected) { rejectedCoarse=true; }
+        check(rejectedCoarse,"MONOTONIC_COARSE cannot be selected as the GPU work clock");
+        byte[] driftingCoarse=bytes(prefix(),clock(S,4_000_000L,0),clock(2*S,-5_000_000L,0),
+                work(100,3*S,3*S+500_000_000,500_000_000),clock(4*S,5_000_000L,0),
+                clock(7*S,-9_000_000L,0),freq(7*S,338000),suffix(0));
+        for(int chunk:new int[]{1,17,4096}) {
+            GpuTraceData.Snapshot stableRaw=read(driftingCoarse,chunk,true).snapshot(M+9*S);
+            check(stableRaw.complete,"several-ms coarse clock drift does not reject stable RAW "+chunk);
+            near(stableRaw.busyPct,50,"coarse drift cannot move RAW work boundaries");
+            near(stableRaw.frequencyMHz,338,"coarse drift leaves verified frequency valid");
+            check(stableRaw.beginNs==M+3*S && stableRaw.endNs==M+4*S,"coarse drift leaves safe window unchanged");
+            check(stableRaw.error.isEmpty(),"coarse clock drift has no false integrity error");
+        }
+        byte[] rawDiscontinuity=bytes(prefix(),work(100,3*S,3*S+500_000_000,500_000_000),
+                clock(4*S,-2_000_000L,2_000_000L),freq(7*S,338000),suffix(0));
+        GpuTraceData.Snapshot brokenRaw=read(rawDiscontinuity,17,true).snapshot(M+9*S);
+        check(!brokenRaw.complete,"actual RAW mapping discontinuity still rejects trace");
+        check(Double.isNaN(brokenRaw.busyPct)&&Double.isNaN(brokenRaw.frequencyMHz),
+                "RAW discontinuity withholds both channels rather than publishing invalid timestamps");
+        check(brokenRaw.error.contains("clock mapping changed"),"RAW discontinuity reports the actual integrity error");
+        byte[] missingRaw=bytes(coarseOnlyClock(),service(1,0),fstats(1,0,0),
+                work(100,3*S,3*S+500_000_000,500_000_000),freq(7*S,338000),suffix(0));
+        GpuTraceData.Snapshot withoutRaw=read(missingRaw,17,true).snapshot(M+9*S);
+        check(!withoutRaw.complete,"coarse clock is not a fallback for a missing RAW snapshot");
+        check(Double.isNaN(withoutRaw.busyPct)&&Double.isNaN(withoutRaw.frequencyMHz),
+                "missing RAW mapping cannot publish work or frequency");
+        byte[] rawServiceTimes=bytes(clock(),rawService(1,0),fstats(1,0,0),
+                work(100,3*S,3*S+500_000_000,500_000_000),freq(7*S,338000),
+                rawService(5,8*S),fstats(2,8*S,0),rawService(4,8*S),traceStats(1,0));
+        GpuTraceData.Snapshot serviceRaw=read(rawServiceTimes,7,true).snapshot(M+9*S);
+        check(serviceRaw.complete,"service packet timestamps explicitly on clock 5 resolve to MONOTONIC");
+        near(serviceRaw.busyPct,50,"RAW service fences preserve busy union");
+        near(serviceRaw.frequencyMHz,338,"RAW service fences preserve BOOTTIME frequency");
+        check(serviceRaw.beginNs==M+3*S&&serviceRaw.endNs==M+4*S&&serviceRaw.watermarkNs==M+8*S,
+                "RAW service start, disabled and read-completed fences use the correct offset");
         GpuTraceData streaming=read(good,13,false);
         check(!streaming.snapshot(M+9*S).complete,"final packet without external EOF not committed");
         check(Double.isNaN(streaming.snapshot(M+9*S).frequencyMHz),"frequency also requires normal capture completion");
@@ -104,6 +160,59 @@ public final class GpuPerfettoTests {
         check(Double.isNaN(missingFences.frequencyMHz),"frequency requires complete final fences");
         check(!read(bytes(prefix(),work(100,3*S,4*S,S),suffix(1)),8,true).snapshot(M+9*S).complete,
                 "central buffer loss");
+        int[] lossFields={3,13,18,6,9,19};
+        String[] lossNames={"chunks_overwritten","bytes_overwritten","chunks_discarded",
+                "patches_failed","abi_violations","trace_writer_packet_loss"};
+        for(int i=0;i<lossFields.length;++i) {
+            byte[] singleLoss=bytes(prefix(),work(100,3*S,4*S,S),freq(7*S,338000),
+                    service(5,8*S),fstats(2,8*S,0),service(4,8*S),
+                    traceStatsBuffers(1,num(lossFields[i],12+i)));
+            GpuTraceData.Snapshot loss=read(singleLoss,17,true).snapshot(M+9*S);
+            check(!loss.complete,"each genuine trace-buffer loss rejects capture "+lossNames[i]);
+            check(Double.isNaN(loss.busyPct)&&Double.isNaN(loss.frequencyMHz),
+                    "each trace-buffer loss withholds both channels "+lossNames[i]);
+            check(loss.error.startsWith("Perfetto central buffer overwrite, discard, or packet loss:"),
+                    "detailed buffer error preserves its compatible prefix");
+            check(loss.error.contains(lossNames[i]+"="+(12+i)),"loss evidence names the actual counter");
+        }
+        byte[] multipleBuffers=bytes(prefix(),work(100,3*S,4*S,S),freq(7*S,338000),
+                service(5,8*S),fstats(2,8*S,0),service(4,8*S),
+                traceStatsBuffers(1,bytes(num(3,2),num(13,100),num(18,1)),
+                        bytes(num(3,3),num(13,400),num(19,7))));
+        GpuTraceData.Snapshot combinedLoss=read(multipleBuffers,7,true).snapshot(M+9*S);
+        check(combinedLoss.error.contains("chunks_overwritten=5"),"buffer overwrite counts aggregate across buffers");
+        check(combinedLoss.error.contains("bytes_overwritten=500"),"buffer overwritten bytes aggregate across buffers");
+        check(combinedLoss.error.contains("chunks_discarded=1")&&combinedLoss.error.contains("trace_writer_packet_loss=7"),
+                "independent loss types are retained together");
+        check(!combinedLoss.error.contains("patches_failed=")&&!combinedLoss.error.contains("abi_violations="),
+                "detailed error omits zero counters");
+        check(!combinedLoss.complete&&Double.isNaN(combinedLoss.frequencyMHz),"aggregated loss never publishes readings");
+        byte[] repeatedStats=bytes(prefix(),work(100,3*S,4*S,S),freq(7*S,338000),
+                traceStatsBuffers(0,bytes(num(3,2),num(13,1000))),
+                service(5,8*S),fstats(2,8*S,0),service(4,8*S),
+                traceStatsBuffers(1,bytes(num(3,3),num(13,2000))));
+        GpuTraceData.Snapshot cumulativeLoss=read(repeatedStats,11,true).snapshot(M+9*S);
+        check(cumulativeLoss.error.contains("chunks_overwritten=3")&&!cumulativeLoss.error.contains("chunks_overwritten=5"),
+                "repeated cumulative stats do not double count overwrites");
+        check(cumulativeLoss.error.contains("bytes_overwritten=2000")&&!cumulativeLoss.error.contains("bytes_overwritten=3000"),
+                "repeated cumulative stats do not double count overwritten bytes");
+        byte[] earlierLoss=bytes(prefix(),work(100,3*S,4*S,S),freq(7*S,338000),
+                traceStatsBuffers(0,num(19,9)),service(5,8*S),fstats(2,8*S,0),service(4,8*S),
+                traceStatsBuffers(1,num(19,0)));
+        GpuTraceData.Snapshot preservedLoss=read(earlierLoss,17,true).snapshot(M+9*S);
+        check(!preservedLoss.complete&&preservedLoss.error.contains("trace_writer_packet_loss=9"),
+                "a later zero snapshot cannot erase observed buffer loss");
+        byte[] oversizedCounts=bytes(prefix(),work(100,3*S,4*S,S),freq(7*S,338000),
+                service(5,8*S),fstats(2,8*S,0),service(4,8*S),
+                traceStatsBuffers(1,num(13,Long.MAX_VALUE),num(13,1),num(19,-1)));
+        GpuTraceData.Snapshot boundedLoss=read(oversizedCounts,17,true).snapshot(M+9*S);
+        check(boundedLoss.error.contains("bytes_overwritten="+Long.MAX_VALUE)&&
+                boundedLoss.error.contains("trace_writer_packet_loss="+Long.MAX_VALUE),
+                "unsigned or summed oversized counters remain positive bounded evidence");
+        check(boundedLoss.error.contains("saturated counters are lower bounds")&&boundedLoss.error.length()<400,
+                "saturated loss counts are identified without unbounded output");
+        check(!boundedLoss.complete&&Double.isNaN(boundedLoss.busyPct)&&Double.isNaN(boundedLoss.frequencyMHz),
+                "counter overflow cannot turn a lost trace into valid readings");
         byte[] cpuDrop=bytes(prefix(),work(100,3*S,4*S,S),service(5,8*S),fstats(2,8*S,1),service(4,8*S),traceStats(1,0));
         check(!read(cpuDrop,11,true).snapshot(M+9*S).complete,"kernel buffer loss");
         byte[] badFlush=bytes(prefix(),work(100,3*S,4*S,S),service(5,8*S),fstats(2,8*S,0),service(4,8*S),traceStats(0,0));

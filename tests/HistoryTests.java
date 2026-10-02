@@ -3,6 +3,36 @@ import java.io.*;import java.nio.charset.StandardCharsets;import java.nio.file.*
 /** Real disk snapshots and inclusive ranges; no Android or mocked index implementation. */
 public final class HistoryTests {
  private static int checks;private static void ok(boolean b,String name){checks++;if(!b)throw new AssertionError(name);}private static void eq(double a,double b,String name){ok(Math.abs(a-b)<1e-8,name+" got="+a+" expected="+b);}private static void rejects(Runnable task,String name){boolean rejected=false;try{task.run();}catch(IllegalArgumentException e){rejected=true;}ok(rejected,name);}
+
+ /** Check drawing topology against original rows, independently of the envelope's bucket algorithm. */
+ private static ChartData verifyEnvelope(String name,double[] raw,boolean[] paused)throws Exception{
+  Path file=Files.createTempFile("lightframe-chart-gaps",".csv");double[] expected=raw.clone();long valid=0;double sum=0,min=Double.POSITIVE_INFINITY,max=Double.NEGATIVE_INFINITY;
+  try{
+   try(Writer w=new OutputStreamWriter(new FileOutputStream(file.toFile()),StandardCharsets.UTF_8)){w.write("elapsed_s,gpuPct,paused\n");for(int i=0;i<raw.length;i++){boolean pause=paused!=null&&paused[i];w.write(CsvIndex.encode(new Object[]{i/4d,Double.isFinite(raw[i])?raw[i]:"",pause})+"\n");if(pause)expected[i]=Double.NaN;if(Double.isFinite(expected[i])){valid++;sum+=expected[i];min=Math.min(min,expected[i]);max=Math.max(max,expected[i]);}}}
+   byte[] before=Files.readAllBytes(file);ChartData d;try(CsvIndex index=new CsvIndex(file.toFile())){d=ChartData.load(index,new String[]{"gpuPct"})[0];}
+   ok(d.count==valid,name+" statistics include every original valid row");if(valid==0)ok(Double.isNaN(d.min)&&Double.isNaN(d.max)&&Double.isNaN(d.avg),name+" all-missing statistics remain unavailable");else{eq(d.min,min,name+" exact minimum");eq(d.max,max,name+" exact maximum");eq(d.avg,sum/valid,name+" full-row average");}
+   ok(d.times.length<=9003,name+" full view drawing budget");eq(d.end,(raw.length-1)/4d,name+" true record endpoint");
+   boolean monotonic=true,originalPoints=true,noBridges=true,noFalseBreaks=true;double lastTime=Double.NEGATIVE_INFINITY;int previous=-1;boolean broken=false;
+   for(int i=0;i<d.times.length;i++){double time=d.times[i];if(!Double.isFinite(time)||time<lastTime)monotonic=false;lastTime=time;int row=(int)Math.round(time*4);if(row<0||row>=expected.length||time!=row/4d){originalPoints=false;continue;}double value=d.values[i];if(!Double.isFinite(value)){if(Double.isFinite(expected[row]))originalPoints=false;broken=true;continue;}if(value!=expected[row])originalPoints=false;
+    if(previous>=0){boolean actualGap=false;for(int r=previous;r<=row;r++)if(!Double.isFinite(expected[r])){actualGap=true;break;}if(actualGap&&!broken)noBridges=false;if(!actualGap&&broken)noFalseBreaks=false;}previous=row;broken=false;
+   }
+   ok(monotonic,name+" drawing points stay chronological");ok(originalPoints,name+" values and gap markers use actual raw row times");ok(noBridges,name+" no rendered line crosses missing or paused rows");ok(noFalseBreaks,name+" continuous raw runs have no invented break");ok(Arrays.equals(before,Files.readAllBytes(file)),name+" browsing leaves all raw bytes unchanged");return d;
+  }finally{Files.deleteIfExists(file);}
+ }
+ private static void connection(ChartData d,double first,double second,boolean connected,String name){int a=-1,b=-1;for(int i=0;i<d.times.length;i++)if(Double.isFinite(d.values[i])){if(d.times[i]==first)a=i;if(d.times[i]==second)b=i;}boolean gap=false;if(a>=0&&b>a)for(int i=a+1;i<b;i++)gap|=!Double.isFinite(d.values[i]);ok(a>=0&&b>a&&gap!=connected,name);}
+ private static void chartGapTests()throws Exception{
+  double[] leading=new double[3001];Arrays.fill(leading,40);leading[0]=Double.NaN;leading[1]=10;leading[2]=20;leading[3]=30;ChartData d=verifyEnvelope("leading mixed bucket",leading,null);connection(d,.25,.5,true,"missing before the first selected point does not disconnect later continuous rows");
+  double[] middle=new double[6001];Arrays.fill(middle,40);middle[0]=10;middle[1]=Double.NaN;middle[2]=20;d=verifyEnvelope("internal missing row",middle,null);connection(d,0,.5,false,"two retained extremes separated by a missing row are never connected");
+  double[] trailing=new double[6001];Arrays.fill(trailing,40);trailing[0]=10;trailing[1]=20;trailing[2]=Double.NaN;trailing[3]=30;trailing[4]=35;d=verifyEnvelope("trailing mixed bucket",trailing,null);connection(d,.25,.75,false,"gap after one bucket breaks the following valid bucket");
+  double[] longGap=new double[6001];Arrays.fill(longGap,40);Arrays.fill(longGap,200,1400,Double.NaN);boolean[] pauses=new boolean[longGap.length];Arrays.fill(pauses,1450,1460,true);verifyEnvelope("long missing span and pauses",longGap,pauses);
+  double[] alternating=new double[45001];boolean[] sparsePauses=new boolean[alternating.length];for(int i=0;i<alternating.length;i++){alternating[i]=i%2==0?i%101:Double.NaN;sparsePauses[i]=i%997==0;}verifyEnvelope("many fragmented valid runs including real zero GPU",alternating,sparsePauses);
+  double[] empty=new double[4501];Arrays.fill(empty,Double.NaN);verifyEnvelope("entirely missing GPU",empty,null);
+  double[] finalGap=new double[3001];Arrays.fill(finalGap,40);finalGap[finalGap.length-1]=Double.NaN;d=verifyEnvelope("missing final row",finalGap,null);ok(Double.isNaN(d.values[d.values.length-1])&&d.times[d.times.length-1]==d.end,"terminal missing span is marked at its original time");
+  Path duplicate=Files.createTempFile("lightframe-chart-duplicate-time",".csv");try{
+   try(Writer w=new OutputStreamWriter(new FileOutputStream(duplicate.toFile()),StandardCharsets.UTF_8)){w.write("elapsed_s,gpuPct,paused\n");for(int i=0;i<6001;i++)w.write(CsvIndex.encode(new Object[]{i<3?0:i/4d,i==0?80:i==1?"":i==2?10:40,false})+"\n");}
+   try(CsvIndex index=new CsvIndex(duplicate.toFile())){d=ChartData.load(index,new String[]{"gpuPct"})[0];ok(d.values[0]==80&&Double.isNaN(d.values[1])&&d.values[2]==10,"equal timestamps retain raw extrema order and the intervening missing row");eq(d.min,10,"duplicate-time minimum remains retained");eq(d.max,80,"duplicate-time maximum remains retained");}
+  }finally{Files.deleteIfExists(duplicate);}
+ }
  public static void main(String[] args)throws Exception {
   TimeZone old=TimeZone.getDefault();TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"));try{
    eq(HistoryTime.parse("12.345",false,0),12.345,"exact seconds");eq(HistoryTime.parse("02:03.456",false,0),123.456,"minute input");eq(HistoryTime.parse("01:02:03.456",false,0),3723.456,"hour input");
@@ -38,6 +68,7 @@ public final class HistoryTests {
     File boundary=folder.resolve("boundary.csv").toFile();Files.write(boundary.toPath(),("elapsed_s,fps,paused\n0,10,false\n"+endpoint+",99,false\n").getBytes(StandardCharsets.UTF_8));
     try(CsvIndex index=new CsvIndex(boundary)){double displayed=HistoryTime.parse(HistoryTime.elapsed(index.lastTime),false,0),normalized=HistoryTime.normalizeBoundary(displayed,index.lastTime);HistoryRange range=HistoryRange.load(index,null,0,normalized,new String[]{"fps"});ok(range.rows==2,"default displayed interval includes real final row "+endpoint);eq(range.metrics.get("fps").max,99,"final raw metric remains in inclusive interval "+endpoint);eq(normalized,index.lastTime,"inclusive boundary uses CSV precision "+endpoint);}
    }
+   chartGapTests();
    System.out.println(checks+" history checks passed; 60001-row snapshot/range/chart checks in "+((System.nanoTime()-started)/1000000)+" ms");
   }finally{File[] files=folder.toFile().listFiles();if(files!=null)for(File f:files)f.delete();folder.toFile().delete();}
  }

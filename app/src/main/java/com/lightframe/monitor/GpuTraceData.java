@@ -13,6 +13,8 @@ import java.util.Map;
  * final TraceStats flush, END FtraceStats, and read-tracing-buffers-completed.
  */
 public final class GpuTraceData {
+    // Perfetto BuiltinClock enum IDs, not Linux clockid_t constants.
+    public static final int CLOCK_MONOTONIC=3, CLOCK_MONOTONIC_RAW=5, CLOCK_BOOTTIME=6;
     public static final int MAX_PACKET_BYTES = 1024 * 1024;
     public static final long SECOND_NS = 1_000_000_000L;
     // A period may cross a requested window by up to 1 s, then be reported 2 s
@@ -57,12 +59,14 @@ public final class GpuTraceData {
     private long gpuId=-1, frequencyGpuId=-1, latestFrequencyNs, latestFrequencyKhz;
     private long latestPeriodNs, prunedBeforeNs;
     private long finalFlushOutcome, flushRequested, flushSucceeded, flushFailed;
+    private final long[] bufferLossCounts=new long[6];
+    private final boolean[] bufferLossSaturated=new boolean[6];
     private String problem="", fatal="";
 
-    public GpuTraceData() { this(4); }
+    public GpuTraceData() { this(CLOCK_MONOTONIC_RAW); }
     public GpuTraceData(int workClockId) {
-        if (workClockId!=3 && workClockId!=4)
-            throw new IllegalArgumentException("work clock must be MONOTONIC (3) or RAW (4)");
+        if (workClockId!=CLOCK_MONOTONIC && workClockId!=CLOCK_MONOTONIC_RAW)
+            throw new IllegalArgumentException("Perfetto work clock must be MONOTONIC (3) or RAW (5)");
         this.workClockId=workClockId;
     }
 
@@ -164,7 +168,7 @@ public final class GpuTraceData {
     private void parsePacket(Cursor packet) throws IOException {
         ++packetCount;
         Cursor clock=null,bundle=null,stats=null,traceStats=null,service=null;
-        long timestamp=0,clockId=6,seq=0; boolean drop=false,first=false;
+        long timestamp=0,clockId=CLOCK_BOOTTIME,seq=0; boolean drop=false,first=false;
         while (packet.next()) {
             switch(packet.field) {
                 case 1: bundle=packet.message(); break;
@@ -199,9 +203,9 @@ public final class GpuTraceData {
                 else if(clock.field==4) multiplier=clock.number();
             }
             if(incremental || multiplier!=1) continue;
-            if(id==6) boot=ts; else if(id==3) mono=ts; else if(id==4) raw=ts;
+            if(id==CLOCK_BOOTTIME) boot=ts; else if(id==CLOCK_MONOTONIC) mono=ts; else if(id==CLOCK_MONOTONIC_RAW) raw=ts;
         }
-        if(boot<=0 || mono<=0 || workClockId==4 && raw<=0) return;
+        if(boot<=0 || mono<=0 || workClockId==CLOCK_MONOTONIC_RAW && raw<=0) return;
         long nextBoot=boot-mono, nextRaw=raw>0?mono-raw:0;
         if(haveClock && (Math.abs(nextBoot-bootMinusMono)>1_000_000 ||
                 Math.abs(nextRaw-monoMinusRaw)>1_000_000))
@@ -212,9 +216,9 @@ public final class GpuTraceData {
 
     private long toMono(long ts,int clock) {
         if(ts<=0 || !haveClock) return 0;
-        if(clock==3) return ts;
-        if(clock==4) return ts+monoMinusRaw;
-        if(clock==6) return ts-bootMinusMono;
+        if(clock==CLOCK_MONOTONIC) return ts;
+        if(clock==CLOCK_MONOTONIC_RAW) return ts+monoMinusRaw;
+        if(clock==CLOCK_BOOTTIME) return ts-bootMinusMono;
         problem="unsupported trace timestamp clock "+clock; return 0;
     }
 
@@ -331,12 +335,19 @@ public final class GpuTraceData {
 
     private void parseTraceStats(Cursor c) throws IOException {
         int buffers=0;
+        long[] losses=new long[6]; boolean[] saturated=new boolean[6];
         while(c.next()) {
             if(c.field==1) {
                 ++buffers; Cursor b=c.message();
-                while(b.next()) if((b.field==3 || b.field==6 || b.field==9 || b.field==13 ||
-                        b.field==18 || b.field==19) && b.number()!=0)
-                    problem="Perfetto central buffer overwrite, discard, or packet loss";
+                while(b.next()) {
+                    int index=b.field==3?0:b.field==13?1:b.field==18?2:
+                            b.field==6?3:b.field==9?4:b.field==19?5:-1;
+                    if(index<0) continue;
+                    long value=b.number();
+                    if(value<0 || value>Long.MAX_VALUE-losses[index]) {
+                        losses[index]=Long.MAX_VALUE; saturated[index]=true;
+                    } else losses[index]+=value;
+                }
             } else if((c.field==8 || c.field==9 || c.field==10 || c.field==14) && c.number()!=0)
                 problem="Perfetto trace or flush failure";
             else if(c.field==12) flushRequested=c.number();
@@ -345,6 +356,22 @@ public final class GpuTraceData {
             else if(c.field==15) finalFlushOutcome=c.number();
         }
         if(buffers==0) problem="TraceStats does not describe the capture buffer";
+        String[] names={"chunks_overwritten","bytes_overwritten","chunks_discarded",
+                "patches_failed","abi_violations","trace_writer_packet_loss"};
+        StringBuilder evidence=new StringBuilder(); boolean lowerBounds=false;
+        for(int i=0;i<losses.length;++i) {
+            // Counters are cumulative within this trace buffer. Do not sum
+            // repeated snapshots, but preserve any loss already observed.
+            bufferLossCounts[i]=Math.max(bufferLossCounts[i],losses[i]);
+            bufferLossSaturated[i]|=saturated[i];
+            if(bufferLossCounts[i]>0) {
+                if(evidence.length()>0) evidence.append(", ");
+                evidence.append(names[i]).append('=').append(bufferLossCounts[i]);
+                lowerBounds|=bufferLossSaturated[i];
+            }
+        }
+        if(evidence.length()>0) problem="Perfetto central buffer overwrite, discard, or packet loss: "+
+                evidence+(lowerBounds?" (saturated counters are lower bounds)":"");
         haveTraceStats=true; traceStatsPacket=packetCount;
     }
 

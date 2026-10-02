@@ -3,18 +3,23 @@ package com.lightframe.monitor;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.regex.*;
 import java.util.concurrent.*;
 
 /** One bounded, read-only GPU work trace owned by this collector process. */
 public final class GpuTraceSession implements Closeable {
  public static final long RETRY_NS=30_000_000_000L;
- public static final int FILE_LIMIT_BYTES=4*1024*1024;
+ public static final int FILE_LIMIT_BYTES=8*1024*1024;
+ static final int INITIAL_BUFFER_KIB=2048,MAX_BUFFER_KIB=4096;
+ static final long CAPACITY_RETRY_NS=1_000_000_000L;
+ private static final String LOSS_PREFIX="Perfetto central buffer overwrite, discard, or packet loss:";
+ private static final Pattern CAPACITY_COUNTER=Pattern.compile("(?:^|[,\\s])(?:chunks_overwritten|bytes_overwritten|chunks_discarded)=([0-9]+)(?=$|[,\\s])");
  static final int READ_CHUNK_BYTES=32*1024,OUTPUT_LIMIT_BYTES=128*1024;
  static final long DURATION_NS=8_000_000_000L,PROCESS_TIMEOUT_NS=18_000_000_000L;
- static final String CONFIG="buffers { size_kb: 512 fill_policy: DISCARD }\n"
+ static String config(int bufferKiB){return "buffers { size_kb: "+bufferKiB+" fill_policy: DISCARD }\n"
   +"duration_ms: 8000\n"
   +"data_sources { config { name: \"linux.ftrace\" ftrace_config { "
-  +"ftrace_events: \"power/gpu_work_period\" ftrace_events: \"power/gpu_frequency\" drain_period_ms: 250 } } }\n";
+  +"ftrace_events: \"power/gpu_work_period\" ftrace_events: \"power/gpu_frequency\" drain_period_ms: 250 } } }\n";}
  public static final class Snapshot {
   public final double busyPct,frequencyMHz;
   public final long beginNs,endNs,frequencyNs,readNs;
@@ -31,9 +36,9 @@ public final class GpuTraceSession implements Closeable {
  private final int uid;private final Clock clock;private final Runner runner;private final DecoderFactory decoders;
  private final File configDirectory,traceDirectory;private final ExecutorService worker;private final String testPid;
  private final Object lock=new Object();private volatile Snapshot latest;
- private Run active;private boolean closed;private long retryAtNs;private int generation;
+ private Run active;private boolean closed;private long retryAtNs;private int generation,bufferKiB=INITIAL_BUFFER_KIB;
 
- public GpuTraceSession(int uid){this(uid,4);}
+ public GpuTraceSession(int uid){this(uid,GpuTraceData.CLOCK_MONOTONIC_RAW);}
  public GpuTraceSession(int uid,int workClockId){this(uid,System::nanoTime,argv->new ProcessBuilder(argv).redirectErrorStream(true).start(),
   new File("/data/misc/perfetto-configs"),new File("/data/misc/perfetto-traces"),()->newDecoder(workClockId),null);}
  GpuTraceSession(int uid,Clock clock,Runner runner,File configDirectory,File traceDirectory,DecoderFactory decoders,String testPid){
@@ -46,7 +51,7 @@ public final class GpuTraceSession implements Closeable {
   synchronized(lock){
    if(closed||uid!=0&&uid!=2000)return latest;
    if(active==null&&(retryAtNs==0||nowNs-retryAtNs>=0)){
-    Run run=new Run(++generation);active=run;
+    Run run=new Run(++generation,bufferKiB);active=run;
     if(!Double.isFinite(latest.busyPct)&&!Double.isFinite(latest.frequencyMHz))latest=Snapshot.empty("starting","",nowNs);
     try{run.task=worker.submit(()->collect(run));}catch(RejectedExecutionException e){active=null;latest=Snapshot.empty("closed","追踪已关闭",nowNs);}
    }
@@ -79,12 +84,12 @@ public final class GpuTraceSession implements Closeable {
     long now=clock.now();if(now-started>=PROCESS_TIMEOUT_NS)throw new IOException("GPU 追踪未在 18 秒内结束");
     if(run.outputError!=null)throw new IOException(run.outputError);
     boolean exited;int exit=0;try{exit=child.exitValue();exited=true;}catch(IllegalThreadStateException running){exited=false;}
-    if(trace.exists()&&trace.length()>FILE_LIMIT_BYTES)throw new IOException("GPU 追踪超过 4 MiB 文件上限");
+    if(trace.exists()&&trace.length()>FILE_LIMIT_BYTES)throw new IOException("GPU 追踪超过 8 MiB 文件上限");
     if(exited){
      if(exit!=0)throw new IOException("Perfetto 退出码 "+exit+run.outputSuffix());
      if(!trace.isFile()||trace.length()==0)throw new IOException("Perfetto 未返回 GPU 追踪数据"+run.outputSuffix());
      RandomAccessFile file=run.openTrace();if(file==null)return;
-     long length=file.length();if(length>FILE_LIMIT_BYTES)throw new IOException("GPU 追踪超过 4 MiB 文件上限");
+     long length=file.length();if(length>FILE_LIMIT_BYTES)throw new IOException("GPU 追踪超过 8 MiB 文件上限");
      Decoder decoder=decoders.create();byte[] bytes=new byte[READ_CHUNK_BYTES];
      while(run.readBytes<length&&current(run)&&!Thread.currentThread().isInterrupted()){
       int count=file.read(bytes,0,(int)Math.min(bytes.length,length-run.readBytes));
@@ -106,10 +111,23 @@ public final class GpuTraceSession implements Closeable {
     if(!closed&&active==run&&run.generation==generation&&!run.cancelled){
      active=null;long now=clock.now();
      boolean valid=result!=null&&(Double.isFinite(result.busyPct)||Double.isFinite(result.frequencyMHz));
-     retryAtNs=failed||!valid?now+RETRY_NS:0;latest=result==null?Snapshot.empty(status,error,now):result;
+     long delay=RETRY_NS;
+     // A larger bounded central buffer cannot repair SMB, ABI, parser or kernel losses.
+     // Capacity changes apply only to the next run; this failed trace remains unavailable.
+     if(!failed&&!valid&&result!=null&&bufferKiB<MAX_BUFFER_KIB&&capacityLoss(result.error)){
+      bufferKiB=Math.min(MAX_BUFFER_KIB,run.bufferKiB*2);delay=CAPACITY_RETRY_NS;
+     }
+     retryAtNs=failed||!valid?now+delay:0;latest=result==null?Snapshot.empty(status,error,now):result;
     }
    }
   }
+ }
+ private static boolean capacityLoss(String error){
+  if(error==null||!error.startsWith(LOSS_PREFIX))return false;
+  Matcher counters=CAPACITY_COUNTER.matcher(error);while(counters.find()){
+   String value=counters.group(1);for(int i=0;i<value.length();i++)if(value.charAt(i)!='0')return true;
+  }
+  return false;
  }
  private static String ownerPid()throws IOException{
   String pid=new File("/proc/self").getCanonicalFile().getName();
@@ -137,13 +155,13 @@ public final class GpuTraceSession implements Closeable {
   return new Snapshot(s.busyPct,s.frequencyMHz,s.beginNs,s.endNs,s.frequencyNs,s.readNs,s.status,s.error);
  }
  private static final class Run {
-  final int generation;volatile boolean cancelled;volatile String outputError;volatile Future<?> task;
+  final int generation,bufferKiB;volatile boolean cancelled;volatile String outputError;volatile Future<?> task;
   private java.lang.Process child;private RandomAccessFile input;private File config,trace;private boolean configOwned,traceOwned;
   private final ByteArrayOutputStream output=new ByteArrayOutputStream();long readBytes;
-  Run(int generation){this.generation=generation;}
+  Run(int generation,int bufferKiB){this.generation=generation;this.bufferKiB=bufferKiB;}
   synchronized boolean createConfig(File cfg,File pftrace)throws IOException{
    if(cancelled)return false;if(!cfg.createNewFile())throw new IOException("追踪配置文件名冲突");config=cfg;configOwned=true;trace=pftrace;traceOwned=true;
-   try(FileOutputStream out=new FileOutputStream(cfg)){out.write(CONFIG.getBytes(StandardCharsets.UTF_8));}return true;
+   try(FileOutputStream out=new FileOutputStream(cfg)){out.write(config(bufferKiB).getBytes(StandardCharsets.UTF_8));}return true;
   }
   synchronized boolean register(java.lang.Process process){if(cancelled){kill(process);return false;}child=process;return true;}
   synchronized RandomAccessFile openTrace()throws IOException{if(cancelled)return null;if(input==null)input=new RandomAccessFile(trace,"r");return input;}

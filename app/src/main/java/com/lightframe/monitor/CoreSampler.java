@@ -18,7 +18,7 @@ public final class CoreSampler implements Closeable {
  private final List<String> policies=new ArrayList<>(),cpuTemps=new ArrayList<>(),gpuTemps=new ArrayList<>(),socTemps=new ArrayList<>();
  private final List<String> gpuFreqs=new ArrayList<>(),gpuLoads=new ArrayList<>();
  private final ExecutorService dumps=Executors.newSingleThreadExecutor();
- private final GpuTraceSession gpuTrace=new GpuTraceSession(Process.myUid(),4);
+ private final GpuTraceSession gpuTrace=new GpuTraceSession(Process.myUid(),GpuTraceData.CLOCK_MONOTONIC_RAW);
  private GpuTraceSession.Snapshot lastGpuTrace;
  private long[] lastCpu,lastNet;private long lastNetNs,lastLayerScan,lastFrameError;private String selectedLayer="",lastFilter="",lastManual="",frameDetail="尚未读取帧时间";private IBinder surface,thermalService;private FrameDiscovery frameDiscovery;
  private String thermalDump="",thermalError="";private long thermalDumpNs;

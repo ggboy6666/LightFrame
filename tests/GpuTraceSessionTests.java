@@ -14,18 +14,18 @@ public final class GpuTraceSessionTests {
  private interface Condition {boolean done()throws Exception;}
  private static void await(Condition condition,String why)throws Exception{long end=System.nanoTime()+2_000_000_000L;while(!condition.done()&&System.nanoTime()<end)Thread.sleep(5);check(condition.done(),why);}
  public static void main(String[] args)throws Exception{
-  permissionsAndPaths();completedOnlyAndRenewal();failuresAndRetry();limits();pauseAndLateStartup();timeout();realProcess();
+  permissionsAndPaths();completedOnlyAndRenewal();failuresAndRetry();capacityRecovery();otherLossBackoff();limits();pauseAndLateStartup();timeout();realProcess();
   System.out.println("GPU trace session checks: "+checks);
  }
  private static final class Fixture implements Closeable {
   final File base=Files.createTempDirectory("lightframe-gpu-session-").toFile(),configs=new File(base,"configs"),traces=new File(base,"traces");
   final AtomicLong now=new AtomicLong(100_000_000_000L);final AtomicInteger starts=new AtomicInteger(),feeds=new AtomicInteger(),finishes=new AtomicInteger();
-  final List<FakeProcess> processes=Collections.synchronizedList(new ArrayList<>());final List<File> owned=Collections.synchronizedList(new ArrayList<>());final byte[] data=new byte[70000];
+  final List<Integer> capacities=Collections.synchronizedList(new ArrayList<>());final List<FakeProcess> processes=Collections.synchronizedList(new ArrayList<>());final List<File> owned=Collections.synchronizedList(new ArrayList<>());final byte[] data=new byte[70000];
   Fixture()throws IOException{if(!configs.mkdir()||!traces.mkdir())throw new IOException("mkdir");for(int i=0;i<data.length;i++)data[i]=(byte)i;}
   FakeProcess start(String[] argv,int exit,boolean alive)throws IOException{
    check(argv.length==6&&argv[0].equals("/system/bin/perfetto")&&argv[1].equals("--txt")&&argv[2].equals("-c")&&argv[4].equals("-o"),"controlled argv has no shell/background process escape");
    File cfg=new File(argv[3]),trace=new File(argv[5]);String config=new String(Files.readAllBytes(cfg.toPath()),StandardCharsets.UTF_8);
-   check(config.contains("duration_ms: 8000")&&config.contains("size_kb: 512 fill_policy: DISCARD"),"eight-second and buffer bound configured");
+   check(config.contains("duration_ms: 8000")&&(config.contains("size_kb: 2048 fill_policy: DISCARD")||config.contains("size_kb: 4096 fill_policy: DISCARD")),"eight-second and bounded central capacity configured");capacities.add(config.contains("size_kb: 4096 ")?4096:2048);
    check(!config.contains("write_into_file")&&!config.contains("flush_period")&&!config.contains("atrace"),"final capture never relies on streaming stats or gfx categories");
    check(config.contains("power/gpu_work_period")&&config.contains("power/gpu_frequency"),"only actual GPU work and frequency events requested");
    check(cfg.getParentFile().equals(configs)&&trace.getParentFile().equals(traces),"files remain within injected controlled directories");
@@ -35,6 +35,9 @@ public final class GpuTraceSessionTests {
    public void feed(byte[] data,int start,int count){check(!done,"no feed after final packet check");feeds.incrementAndGet();bytes+=count;}
    public void finish(){done=true;finishes.incrementAndGet();check(bytes==Fixture.this.data.length,"bounded read preserves every completed trace byte");}
    public GpuTraceSession.Snapshot snapshot(long ns){check(done,"snapshot requires final completion validation");return new GpuTraceSession.Snapshot(37.5,599,ns-5_000_000_000L,ns-4_000_000_000L,ns-1_000_000_000L,ns,"ready","");}};}
+  GpuTraceSession.Decoder lossDecoder(String error){GpuTraceSession.Decoder delegate=decoder();return new GpuTraceSession.Decoder(){
+   public void feed(byte[] data,int start,int count)throws IOException{delegate.feed(data,start,count);}public void finish()throws IOException{delegate.finish();}
+   public GpuTraceSession.Snapshot snapshot(long ns){delegate.snapshot(ns);return GpuTraceSession.Snapshot.empty("unavailable",error,ns);}};}
   GpuTraceSession session(GpuTraceSession.Runner runner,GpuTraceSession.DecoderFactory decoders){return new GpuTraceSession(2000,now::get,runner,configs,traces,decoders,"123");}
   public void close(){for(FakeProcess process:processes)process.destroy();for(File f:configs.listFiles())f.delete();for(File f:traces.listFiles())f.delete();configs.delete();traces.delete();base.delete();}
  }
@@ -87,10 +90,33 @@ public final class GpuTraceSessionTests {
    for(int i=0;i<50;i++)session.poll(f.now.get());check(f.starts.get()==1,"unsupported/incomplete event stream also backs off");check(Double.isNaN(session.poll(f.now.get()).busyPct),"unavailable is never fabricated zero");session.close();
   }
  }
+ private static void capacityRecovery()throws Exception{
+  check(GpuTraceSession.FILE_LIMIT_BYTES==8*1024*1024&&GpuTraceSession.FILE_LIMIT_BYTES>GpuTraceSession.MAX_BUFFER_KIB*1024,"completed trace file has bounded headroom beyond maximum central buffer");
+  for(String counter:Arrays.asList("chunks_overwritten","bytes_overwritten","chunks_discarded"))try(Fixture f=new Fixture()){
+   String error="Perfetto central buffer overwrite, discard, or packet loss: "+counter+"=2";
+   GpuTraceSession session=f.session(argv->f.start(argv,0,false),()->f.lossDecoder(error));session.poll(f.now.get());
+   await(()->session.poll(f.now.get()).status.equals("unavailable"),counter+" loss completed and withheld");check(f.capacities.equals(Arrays.asList(2048)),"initial capture requests only two MiB");check(Double.isNaN(session.poll(f.now.get()).busyPct)&&Double.isNaN(session.poll(f.now.get()).frequencyMHz),"failed capacity capture never publishes fabricated values");
+   for(int i=0;i<100;i++)session.poll(f.now.get());check(f.starts.get()==1,"capacity change does not immediately spin up repeated captures");
+   f.now.addAndGet(GpuTraceSession.CAPACITY_RETRY_NS-1);session.poll(f.now.get());check(f.starts.get()==1,"expanded retry waits the whole one-second deadline");f.now.incrementAndGet();session.poll(f.now.get());await(()->f.starts.get()==2,"capacity retry starts at bounded one-second deadline");check(f.capacities.equals(Arrays.asList(2048,4096)),"next run doubles once to the four-MiB maximum");
+   await(()->{GpuTraceSession.Snapshot sample=session.poll(f.now.get());return sample.status.equals("unavailable")&&sample.readNs==f.now.get();},"maximum-capacity failure completed");
+   for(int i=0;i<100;i++)session.poll(f.now.get());check(f.starts.get()==2,"failure at maximum capacity cannot spin in a fast loop");f.now.addAndGet(GpuTraceSession.RETRY_NS-1);session.poll(f.now.get());check(f.starts.get()==2,"maximum-capacity retry retains thirty-second backoff");f.now.incrementAndGet();session.poll(f.now.get());await(()->f.starts.get()==3,"maximum-capacity retry begins after thirty seconds");check(f.capacities.get(2)==4096,"capacity never exceeds four MiB");
+   session.suspend();session.poll(f.now.get());await(()->f.starts.get()==4,"manual resume can start a fresh owned capture");check(f.capacities.get(3)==4096,"suspend preserves the confirmed needed capacity");session.close();await(()->f.configs.list().length==0&&f.traces.list().length==0,"adapted captures still clean exact owned files");
+  }
+  try(Fixture f=new Fixture()){
+   AtomicInteger attempts=new AtomicInteger();String error="Perfetto central buffer overwrite, discard, or packet loss: chunks_discarded=1";
+   GpuTraceSession session=f.session(argv->f.start(argv,0,f.starts.get()>0),()->attempts.incrementAndGet()==1?f.lossDecoder(error):f.decoder());session.poll(f.now.get());await(()->session.poll(f.now.get()).status.equals("unavailable"),"recoverable loss recorded before successful retry");f.now.addAndGet(GpuTraceSession.CAPACITY_RETRY_NS);session.poll(f.now.get());await(()->f.starts.get()==2,"larger recovery capture started");check(Double.isNaN(session.poll(f.now.get()).busyPct),"running larger capture cannot make prior failure look successful");f.processes.get(1).alive=false;await(()->session.poll(f.now.get()).status.equals("ready"),"a fully decoded larger capture recovers measurements");GpuTraceSession.Snapshot recovered=session.poll(f.now.get());check(recovered.busyPct==37.5&&recovered.frequencyMHz==599,"recovered readings are decoder measurements, not interpolation");session.close();
+  }
+ }
+ private static void otherLossBackoff()throws Exception{
+  String prefix="Perfetto central buffer overwrite, discard, or packet loss:";
+  for(String error:Arrays.asList(prefix+" trace_writer_packet_loss=7",prefix+" patches_failed=2",prefix+" abi_violations=1",prefix+" chunks_overwritten=0, bytes_overwritten=0, chunks_discarded=0",prefix+" trace_writer_chunks_discarded=2",prefix+" chunks_discarded=-1",prefix+" chunks_discarded=2garbage","unrelated "+prefix+" chunks_discarded=5","Perfetto central buffer overwrite, discard, or packet loss"))try(Fixture f=new Fixture()){
+   GpuTraceSession session=f.session(argv->f.start(argv,0,false),()->f.lossDecoder(error));session.poll(f.now.get());await(()->session.poll(f.now.get()).status.equals("unavailable"),"non-capacity failure published");f.now.addAndGet(GpuTraceSession.CAPACITY_RETRY_NS);session.poll(f.now.get());check(f.starts.get()==1,"SMB, patch, unknown or nonpositive counters do not take capacity fast path");f.now.addAndGet(GpuTraceSession.RETRY_NS-GpuTraceSession.CAPACITY_RETRY_NS-1);session.poll(f.now.get());check(f.starts.get()==1,"non-capacity failure waits full thirty-second deadline");f.now.incrementAndGet();session.poll(f.now.get());await(()->f.starts.get()==2,"non-capacity failure retries only at normal deadline");check(f.capacities.equals(Arrays.asList(2048,2048)),"non-capacity errors do not increase memory capacity");session.close();
+  }
+ }
  private static void limits()throws Exception{
   try(Fixture f=new Fixture()){
    GpuTraceSession session=f.session(argv->{FakeProcess p=f.start(argv,0,true);try(RandomAccessFile file=new RandomAccessFile(argv[5],"rw")){file.setLength(GpuTraceSession.FILE_LIMIT_BYTES+1L);}return p;},f::decoder);
-   session.poll(f.now.get());await(()->session.poll(f.now.get()).status.equals("error"),"trace file beyond four MiB rejected");check(f.feeds.get()==0&&f.processes.get(0).destroyed,"oversized file never parsed and owned process killed");session.close();
+   session.poll(f.now.get());await(()->session.poll(f.now.get()).status.equals("error"),"trace file beyond eight MiB rejected");check(f.feeds.get()==0&&f.processes.get(0).destroyed,"oversized file never parsed and owned process killed");session.close();
   }
   try(Fixture f=new Fixture()){
    GpuTraceSession session=f.session(argv->f.start(argv,0,false),()->new GpuTraceSession.Decoder(){public void feed(byte[] b,int o,int n)throws IOException{throw new IOException("packet exceeds one MiB");}public void finish(){}public GpuTraceSession.Snapshot snapshot(long ns){throw new AssertionError("malformed trace snapshot");}});
