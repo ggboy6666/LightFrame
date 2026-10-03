@@ -8,7 +8,7 @@ import java.util.*;
 
 /** Streams immutable raw CSVs, writes a completed summary, and repairs older records. */
 public final class SessionAnalysis {
- public static final int ANALYSIS_VERSION=2;
+ public static final int ANALYSIS_VERSION=3;
  public interface Progress { void onProgress(long sampleRows,long frameRows); }
  private static final Object[] LOCKS=new Object[16];
  static{for(int i=0;i<LOCKS.length;i++)LOCKS[i]=new Object();}
@@ -17,7 +17,7 @@ public final class SessionAnalysis {
   "frameWindowReady","frameWindowStale","frameProbeCount","frameCandidateCount","frameProbeFailures","frameDataAgeMs","frameWindowSpanMs","captureGapCount",
   "foregroundPackage","foregroundStatus","frameSourceVerified","gpuLoadStatus","gpuFrequencyStatus","cpuTemperatureStatus",
   "gpuTemperatureStatus","socTemperatureStatus","thermalServiceStatus","thermalServiceSource","thermalServiceReadNs","thermalServiceAgeMs",
-  "longFramesEstimate","bigLongFramesEstimate","gpuLoadKind","gpuWindowBeginNs","gpuWindowEndNs","gpuAgeMs","gpuFrequencySampleNs","gpuFrequencyAgeMs","gpuTraceStatus","gpuTraceError"));
+  "longFramesEstimate","bigLongFramesEstimate","frameBudgetNs","frameBudgetHz","frameBudgetSource","frameBudgetSampleNs","previousCycleSampleNs","gpuLoadKind","gpuWindowBeginNs","gpuWindowEndNs","gpuAgeMs","gpuFrequencySampleNs","gpuFrequencyAgeMs","gpuTraceStatus","gpuTraceError"));
  private SessionAnalysis(){}
  private static Object lock(File dir){String path;try{path=dir.getCanonicalPath();}catch(IOException e){path=dir.getAbsolutePath();}return LOCKS[(path.hashCode()&0x7fffffff)%LOCKS.length];}
  public static JSONObject read(File dir){
@@ -63,10 +63,12 @@ public final class SessionAnalysis {
   }
   notify(progress,sampleRows,0);
   JSONObject config=seed.optJSONObject("config");double target=seed.optDouble("targetFps",config==null?Double.NaN:config.optDouble("targetFps",Double.NaN));
-  SessionStats.Frames frames=new SessionStats.Frames();boolean frameAnalysisAvailable=false;
+  SessionStats.Frames frames=new SessionStats.Frames();boolean frameAnalysisAvailable=false,automaticBudget=seed.optString("frameBudgetMode","").equals("automatic_display");
   if(frameCompleteBytes>0){
    try(BufferedReader reader=reader(framesFile,frameCompleteBytes)){
     String[] header=header(reader);int elapsed=column(header,"elapsed_s"),present=column(header,"present_ns"),interval=column(header,"interval_ms"),segment=column(header,"segment"),layerCol=column(header,"layer"),targetCol=column(header,"target_fps"),longCol=column(header,"long_frame_estimate"),bigCol=column(header,"big_long_frame_estimate");
+    int refreshPeriod=column(header,"refresh_period_ns"),refreshHz=column(header,"refresh_rate_hz");
+    automaticBudget|=refreshPeriod>=0||refreshHz>=0;
     frameAnalysisAvailable=interval>=0;String previousSegment=null,previousLayer=null;long previousPresent=0;
     String line;while((line=reader.readLine())!=null){
      if(line.isEmpty())continue;String[] row=CsvIndex.parse(line);frameRows++;if(row.length<header.length)incompleteFrames++;
@@ -75,7 +77,10 @@ public final class SessionAnalysis {
      boolean changed=(segment>=0&&!Objects.equals(nextSegment,previousSegment))||(layerCol>=0&&!Objects.equals(nextLayer,previousLayer));
      long stamp=integer(cell(row,present));double ms=number(cell(row,interval)),rowTarget=number(cell(row,targetCol));if(!Double.isFinite(rowTarget)||rowTarget<=0)rowTarget=target;
      boolean monotonic=present<0||(stamp>0&&(previousPresent==0||stamp>previousPresent));
-     if(frameAnalysisAvailable&&!changed&&monotonic&&Double.isFinite(ms)&&ms>0)frames.add(ms,rowTarget,Boolean.parseBoolean(cell(row,longCol)),Boolean.parseBoolean(cell(row,bigCol)));
+     if(frameAnalysisAvailable&&!changed&&monotonic&&Double.isFinite(ms)&&ms>0){
+      if(automaticBudget){long period=integer(cell(row,refreshPeriod));if(period<=0||period==Long.MAX_VALUE)period=FrameBudget.periodNs(number(cell(row,refreshHz)));frames.addWithBudget(ms,period);}
+      else frames.add(ms,rowTarget,Boolean.parseBoolean(cell(row,longCol)),Boolean.parseBoolean(cell(row,bigCol)));
+     }
      previousPresent=stamp>0?stamp:0;previousSegment=nextSegment;previousLayer=nextLayer;
      if((frameRows&4095)==0)notify(progress,sampleRows,frameRows);
     }
@@ -91,10 +96,13 @@ public final class SessionAnalysis {
   result.put("status",interrupted||incompleteSamples>0||incompleteFrames>0?"partial":captureStatus);result.put("analysisStatus","complete");result.put("analysisVersion",ANALYSIS_VERSION);
   result.put("statistics",statistics);result.put("samples",sampleRows);result.put("frames",frameRows);result.put("excludedUnavailableFpsZeros",invalidFpsZeros);result.put("fpsZeroPolicy","zero excluded only with same-row unavailable/stale window evidence; raw frames unchanged");double oldDuration=seed.optDouble("durationSeconds",Double.NaN);if(Double.isFinite(oldDuration)&&oldDuration>=0)duration=Math.max(duration,oldDuration);putFinite(result,"durationSeconds",duration);
   result.put("layer",layer);result.put("capturedIntervals",frames.count);putFinite(result,"capturedFrameAverageFps",frames.averageFps());putFinite(result,"low1Pct",frames.low(.01));putFinite(result,"low01Pct",frames.low(.001));putFinite(result,"frameTimeP95Ms",frames.percentile(.95));putFinite(result,"frameTimeP99Ms",frames.percentile(.99));
-  result.put("longFramesEstimate",frames.longFrames);result.put("bigLongFramesEstimate",frames.bigLongFrames);result.put("frameAnalysisAvailable",frameAnalysisAvailable);result.put("captureGapCount",Math.max(captureGaps,seed.optLong("captureGapCount",0)));result.put("incompleteSampleRows",incompleteSamples);result.put("incompleteFrameRows",incompleteFrames);
+  result.put("longFramesEstimate",automaticBudget&&frames.budgetedCount==0?JSONObject.NULL:frames.longFrames);result.put("bigLongFramesEstimate",automaticBudget&&frames.budgetedCount==0?JSONObject.NULL:frames.bigLongFrames);
+  result.put("budgetedIntervals",frames.budgetedCount);result.put("unknownBudgetIntervals",Math.max(0,frames.count-frames.budgetedCount));
+  if(automaticBudget){result.put("frameBudgetMode","automatic_display");result.remove("targetFps");JSONObject saved=result.optJSONObject("config");if(saved!=null)saved.remove("targetFps");result.put("frameBudgetDefinition","Per-frame observed display / VSync refresh period; >1.5 or >3 budgets with 1us rounding tolerance. Unknown transition budgets excluded from long-frame counts, actual intervals retained. Not a count of game stutters.");}
+  result.put("frameAnalysisAvailable",frameAnalysisAvailable);result.put("captureGapCount",Math.max(captureGaps,seed.optLong("captureGapCount",0)));result.put("incompleteSampleRows",incompleteSamples);result.put("incompleteFrameRows",incompleteFrames);
   result.put("discardedSampleTailBytes",sampleTailBytes);result.put("discardedFrameTailBytes",frameTailBytes);
   result.put("framePercentileMethod","0.5ms bins through 4096ms; logarithmic above; full CSV streamed");
-  if(!result.has("title"))result.put("title",dir.getName());if(!result.has("startedUnixMs")&&firstUnixMs>0)result.put("startedUnixMs",firstUnixMs);if(!result.has("targetFps"))putFinite(result,"targetFps",target);if(interrupted)result.put("recovered",true);
+  if(!result.has("title"))result.put("title",dir.getName());if(!result.has("startedUnixMs")&&firstUnixMs>0)result.put("startedUnixMs",firstUnixMs);if(!automaticBudget&&!result.has("targetFps"))putFinite(result,"targetFps",target);if(interrupted)result.put("recovered",true);
   result.put("analysisSampleBytes",sampleLength);result.put("analysisSampleModifiedMs",sampleModified);result.put("analysisFrameBytes",frameLength);result.put("analysisFrameModifiedMs",frameModified);result.put("analyzedUnixMs",System.currentTimeMillis());
   writeAtomic(dir,"summary.json",result);return result;
  }

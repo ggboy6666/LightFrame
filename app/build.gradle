@@ -2,8 +2,24 @@ plugins { id 'com.android.application' }
 android {
     namespace 'com.lightframe.monitor'
     compileSdk 35
-    defaultConfig { applicationId 'com.lightframe.monitor'; minSdk 26; targetSdk 35; versionCode 8; versionName '0.2.6' }
+    defaultConfig { applicationId 'com.lightframe.monitor'; minSdk 26; targetSdk 35; versionCode 9; versionName '1.0.0' }
+    flavorDimensions 'edition'
+    productFlavors { full { dimension 'edition' }; lite { dimension 'edition'; applicationIdSuffix '.lite' } }
+    sourceSets { full.java.srcDir "$buildDir/generated/lightframe/full"; lite.java.srcDir "$buildDir/generated/lightframe/lite" }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
     buildTypes { release { minifyEnabled false } }
 }
 dependencies { implementation 'dev.rikka.shizuku:api:13.1.5'; implementation 'dev.rikka.shizuku:provider:13.1.5' }
+
+// Keep the same shared source namespace while the Lite package installs alongside Full.
+tasks.register('generateFlavorSources') {
+    outputs.dir "$buildDir/generated/lightframe"
+    doLast {
+        ['full', 'lite'].each { variant ->
+            def target = file("$buildDir/generated/lightframe/$variant/com/lightframe/monitor/Flavor.java")
+            target.parentFile.mkdirs()
+            target.text = "package com.lightframe.monitor; public final class Flavor { public static final boolean LITE = ${variant == 'lite'}; public static final String APPLICATION_ID = \"com.lightframe.monitor${variant == 'lite' ? '.lite' : ''}\"; public static final String VARIANT = \"$variant\"; public static final String APK_SUFFIX = \"$variant\"; private Flavor() {} }"
+        }
+    }
+}
+preBuild.dependsOn generateFlavorSources

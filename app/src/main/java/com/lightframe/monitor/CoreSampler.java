@@ -12,21 +12,25 @@ import java.util.concurrent.*;
 public final class CoreSampler implements Closeable {
  private static final String GED_MODULE="/sys/module/ged/parameters/",GED_LOAD=GED_MODULE+"gpu_loading",GED_ENABLE=GED_MODULE+"gpu_dvfs_enable";
  private final Map<String,RandomAccessFile> nodes=new LinkedHashMap<>();
+ // handle() serializes collection, so node reads can reuse one bounded buffer.
+ private final byte[] nodeBytes=new byte[32768];
  private final Map<String,String> errors=new LinkedHashMap<>();
  private final NodeRetry retries=new NodeRetry();private boolean forceNodeReads;
  private final ForegroundTask foreground=new ForegroundTask();
  private final List<String> policies=new ArrayList<>(),cpuTemps=new ArrayList<>(),gpuTemps=new ArrayList<>(),socTemps=new ArrayList<>();
  private final List<String> gpuFreqs=new ArrayList<>(),gpuLoads=new ArrayList<>();
- private final ExecutorService dumps=Executors.newSingleThreadExecutor();
+ private final ExecutorService dumps=Executors.newSingleThreadExecutor(task->new Thread(()->{
+  Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);task.run();
+ },"lightframe-dump"));
  private final GpuTraceSession gpuTrace=new GpuTraceSession(Process.myUid(),GpuTraceData.CLOCK_MONOTONIC_RAW);
- private GpuTraceSession.Snapshot lastGpuTrace;
+ private GpuTraceSession.Snapshot lastGpuTrace;private boolean gpuWorkStarted;
  private long[] lastCpu,lastNet;private long lastNetNs,lastLayerScan,lastFrameError;private String selectedLayer="",lastFilter="",lastManual="",frameDetail="尚未读取帧时间";private IBinder surface,thermalService;private FrameDiscovery frameDiscovery;
  private String thermalDump="",thermalError="";private long thermalDumpNs;
  private ThermalSnapshot cachedThermal=ThermalSnapshot.parse("");
  private JSONObject lastFrameSample=new JSONObject();
  private final Map<String,String> latencySnapshots=new LinkedHashMap<>();
  public CoreSampler(){discover();}
- private String read(String path){if(!Numbers.safeNode(path)||!forceNodeReads&&!retries.allowed(path,System.nanoTime()))return null;try{RandomAccessFile f=nodes.get(path);if(f==null){f=new RandomAccessFile(path,"r");nodes.put(path,f);}f.seek(0);byte[] b=new byte[path.startsWith("/proc/")?32768:4096];int n=f.read(b);errors.remove(path);retries.succeeded(path);return n<0?"":new String(b,0,n,StandardCharsets.UTF_8);}catch(Exception e){errors.put(path,e.getClass().getSimpleName()+": "+e.getMessage());retries.failed(path,System.nanoTime());RandomAccessFile failed=nodes.remove(path);if(failed!=null)try{failed.close();}catch(Exception ignored){}return null;}}
+ private String read(String path){if(!Numbers.safeNode(path)||!forceNodeReads&&!retries.allowed(path,System.nanoTime()))return null;try{RandomAccessFile f=nodes.get(path);if(f==null){f=new RandomAccessFile(path,"r");nodes.put(path,f);}f.seek(0);int n=f.read(nodeBytes,0,path.startsWith("/proc/")?nodeBytes.length:4096);errors.remove(path);retries.succeeded(path);return n<0?"":new String(nodeBytes,0,n,StandardCharsets.UTF_8);}catch(Exception e){errors.put(path,e.getClass().getSimpleName()+": "+e.getMessage());retries.failed(path,System.nanoTime());RandomAccessFile failed=nodes.remove(path);if(failed!=null)try{failed.close();}catch(Exception ignored){}return null;}}
  private File[] children(String p){File[] a=new File(p).listFiles();if(a==null)return new File[0];Arrays.sort(a,Comparator.comparing(File::getName));return a;}
  private void discover(){
   for(File f:children("/sys/devices/system/cpu/cpufreq"))if(f.getName().startsWith("policy")&&policies.size()<16){String p=f+"/scaling_cur_freq";if(read(p)==null)p=f+"/cpuinfo_cur_freq";policies.add(p);}
@@ -55,8 +59,14 @@ public final class CoreSampler implements Closeable {
   for(String key:new String[]{"gpuWindowBeginNs","gpuWindowEndNs","gpuAgeMs","gpuFrequencySampleNs","gpuFrequencyAgeMs"})out.put(key,JSONObject.NULL);
   boolean traceLoad=!Double.isFinite(load)&&cfg.optString("gpuLoadPath","").isEmpty();
   boolean traceFrequency=!Double.isFinite(frequency)&&cfg.optString("gpuFreqPath","").isEmpty();
-  if((traceLoad||traceFrequency)&&sampling)lastGpuTrace=gpuTrace.poll(now);
-  GpuTraceSession.Snapshot trace=lastGpuTrace;
+  boolean workEnabled=cfg.optBoolean("gpuWorkEnabled",false);
+  if(!workEnabled){
+   if(gpuWorkStarted){gpuTrace.suspend();gpuWorkStarted=false;}
+   lastGpuTrace=null;out.put("gpuTraceStatus","disabled");out.put("gpuTraceError","");
+   if(traceLoad)out.put("gpuLoadStatus","GPU 工作追踪已关闭（低开销）；可在设置中单独启用");
+   if(traceFrequency)out.put("gpuFrequencyStatus","GPU 频率追踪已关闭（低开销）；可在设置中单独启用");
+  }else if((traceLoad||traceFrequency)&&sampling){lastGpuTrace=gpuTrace.poll(now);gpuWorkStarted=true;}
+  GpuTraceSession.Snapshot trace=workEnabled?lastGpuTrace:null;
   long freshnessNs=Math.max(12_000_000_000L,Math.max(100,Math.min(60000,cfg.optInt("hardwarePeriod",1000)))*1_000_000L+10_000_000_000L);
   if(trace!=null&&(traceLoad||traceFrequency)){
    out.put("gpuTraceStatus",trace.status);out.put("gpuTraceError",trace.error);
@@ -90,7 +100,7 @@ public final class CoreSampler implements Closeable {
   String raw;try{raw=dump("--latency",layer);}catch(Exception e){rememberLatency(layer,e.toString());throw e;}
   rememberLatency(layer,raw);String lower=raw.toLowerCase(Locale.ROOT);
   if(lower.contains("permission denial")||lower.contains("permission denied"))throw new SecurityException("系统拒绝读取帧时间");
-  return Numbers.present(raw);
+  return SurfaceLatency.present(raw);
  }
  private void rememberLatency(String layer,String raw){latencySnapshots.remove(layer);latencySnapshots.put(layer,raw.substring(0,Math.min(raw.length(),2048)));while(latencySnapshots.size()>12)latencySnapshots.remove(latencySnapshots.keySet().iterator().next());}
  private boolean useful(String s,String filter){String l=s.toLowerCase(Locale.ROOT);return (filter.isEmpty()||s.contains(filter))&&!l.contains("com.lightframe.monitor")&&!l.contains("systemui")&&!l.contains("launcher")&&!l.contains("inputmethod")&&!l.contains("shizuku")&&!l.contains("statusbar")&&!l.contains("navigationbar");}
@@ -127,6 +137,9 @@ public final class CoreSampler implements Closeable {
  }
  private void frames(JSONObject o,JSONObject cfg,long now)throws JSONException{
   o.put("present",new JSONArray());o.put("frameAvailable",false);o.put("layer","");o.put("frameSourceVerified",false);
+  long fallbackPeriod=FrameBudget.periodNs(cfg.optDouble("displayRefreshHz",Double.NaN));
+  o.put("frameBudgetNs",fallbackPeriod>0?fallbackPeriod:JSONObject.NULL);put(o,"frameBudgetHz",FrameBudget.hz(fallbackPeriod));
+  o.put("frameBudgetSource",fallbackPeriod>0?"display_refresh_rate":"unavailable");o.put("frameBudgetSampleNs",now);
   o.put("foregroundPackage","");o.put("foregroundStatus","");o.put("foregroundError","");o.put("frameProbeCount",0);o.put("frameCandidateCount",0);o.put("frameProbeFailures",0);
   if(Process.myUid()!=0&&Process.myUid()!=2000){o.put("frameStatus","FPS 需要已授权的 Shizuku / Root");return;}
   String manual=SurfaceLayers.name(cfg.optString("layer",""));String filter=cfg.optString("package","").trim();
@@ -162,6 +175,8 @@ public final class CoreSampler implements Closeable {
     }
     if(selectedLayer.isEmpty()){o.put("frameStatus",frameDetail);return;}
    }
+   long period=FrameBudget.latencyPeriodNs(latencySnapshots.get(selectedLayer));
+   if(period>0){o.put("frameBudgetNs",period);put(o,"frameBudgetHz",FrameBudget.hz(period));o.put("frameBudgetSource","surfaceflinger_vsync");o.put("frameBudgetSampleNs",System.nanoTime());}
    JSONArray a=new JSONArray();for(long p:t)a.put(p);o.put("present",a);o.put("layer",selectedLayer);o.put("frameAvailable",true);o.put("frameSourceVerified",!filter.isEmpty()||!manual.isEmpty());frameDetail="已读取实际呈现帧时间";o.put("frameStatus",frameDetail);
   }catch(Exception e){lastFrameError=now;selectedLayer="";frameDiscovery=null;frameDetail="帧接口读取失败："+e.getClass().getSimpleName()+" "+e.getMessage();o.put("frameStatus",frameDetail);}
  }
@@ -171,7 +186,7 @@ public final class CoreSampler implements Closeable {
  }
  private JSONObject collect(JSONObject req)throws Exception{
   String op=req.optString("op","sample");JSONObject cfg=req.optJSONObject("config");if(cfg==null)cfg=new JSONObject();JSONObject o=new JSONObject();long now=System.nanoTime();o.put("uid",Process.myUid());o.put("nowNs",now);
-  if(op.equals("suspend")){gpuTrace.suspend();lastGpuTrace=null;return o;}
+  if(op.equals("suspend")){gpuTrace.suspend();lastGpuTrace=null;gpuWorkStarted=false;return o;}
   if(op.equals("layers")){JSONArray a=new JSONArray();for(String l:layerList())a.put(l);o.put("layers",a);return o;}
   if(req.optBoolean("hardware",true)||op.equals("diagnose")){
    long[] cpu=Numbers.cpu(read("/proc/stat"));put(o,"cpuPct",Numbers.cpuPct(lastCpu,cpu));lastCpu=cpu;
@@ -184,7 +199,7 @@ public final class CoreSampler implements Closeable {
   if(op.equals("diagnose"))o.put("lastFrameSample",lastFrameSample);
   if(req.optBoolean("frames",true)||op.equals("diagnose")){
    frames(o,cfg,now);
-   if(op.equals("sample")){lastFrameSample=new JSONObject();for(String k:new String[]{"nowNs","layer","frameStatus","frameAvailable","frameSourceVerified","foregroundPackage","foregroundStatus","foregroundError","frameProbeCount","frameCandidateCount","frameProbeFailures"})if(o.has(k))lastFrameSample.put(k,o.get(k));lastFrameSample.put("returnedFrameTimes",o.optJSONArray("present").length());}
+   if(op.equals("sample")){lastFrameSample=new JSONObject();for(String k:new String[]{"nowNs","layer","frameStatus","frameAvailable","frameSourceVerified","foregroundPackage","foregroundStatus","foregroundError","frameProbeCount","frameCandidateCount","frameProbeFailures","frameBudgetNs","frameBudgetHz","frameBudgetSource","frameBudgetSampleNs"})if(o.has(k))lastFrameSample.put(k,o.get(k));lastFrameSample.put("returnedFrameTimes",o.optJSONArray("present").length());}
   }
   o.put("helperCpuMs",Process.getElapsedCpuTime());if(req.optBoolean("hardware",true)||op.equals("diagnose"))put(o,"helperRssMB",Numbers.mem(read("/proc/self/status"),"VmRSS"));
   if(op.equals("diagnose")){o.put("version",Config.VERSION);o.put("config",cfg);o.put("latencyProbeSamples",new JSONObject(latencySnapshots));JSONObject detail=new JSONObject();Set<String> probes=new LinkedHashSet<>();probes.addAll(gpuFreqs);probes.addAll(gpuLoads);probes.add(GED_ENABLE);probes.add(GED_MODULE+"gpu_block");probes.add(GED_MODULE+"gpu_idle");for(String key:new String[]{"gpuFreqPath","gpuLoadPath","gpuTempPath"}){String path=cfg.optString(key,"");if(Numbers.safeNode(path))probes.add(path);}probes.addAll(cpuTemps);probes.addAll(gpuTemps);probes.addAll(socTemps);probes.addAll(policies);for(String p:probes){String v=read(p);detail.put(p,v==null?errors.get(p):v.substring(0,Math.min(v.length(),512)));}for(File f:children("/sys/class/thermal"))if(f.getName().startsWith("thermal_zone"))detail.put(f+"/type",read(f+"/type"));o.put("nodes",detail);try{String raw=dump("--list");o.put("layersRaw",raw);o.put("layers",new JSONArray(SurfaceLayers.parse(raw)));}catch(Exception e){o.put("layerError",e.toString());}Debug.MemoryInfo mi=new Debug.MemoryInfo();Debug.getMemoryInfo(mi);o.put("collectorPssMB",mi.getTotalPss()/1024d);}

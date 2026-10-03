@@ -28,13 +28,20 @@ public final class SessionStats {
  public static final class Frames {
   private final long[] bins=new long[16384];
   private final double[] sums=new double[16384];
-  public long count,longFrames,bigLongFrames;
+  public long count,longFrames,bigLongFrames,budgetedCount;
   public double totalMs;
-  public void add(double ms,double targetFps,boolean recordedLong,boolean recordedBig){
-   if(!Double.isFinite(ms)||ms<=0)return;
+  private boolean record(double ms){
+   if(!Double.isFinite(ms)||ms<=0)return false;
    int bin=ms<4096?(int)(ms*2):8192+(int)(Math.log(ms/4096)*512);
-   bin=Math.max(0,Math.min(bins.length-1,bin));bins[bin]++;sums[bin]+=ms;count++;totalMs+=ms;
-   if(Double.isFinite(targetFps)&&targetFps>0){double budget=1000/targetFps;if(ms>1.5*budget)longFrames++;if(ms>3*budget)bigLongFrames++;}
+   bin=Math.max(0,Math.min(bins.length-1,bin));bins[bin]++;sums[bin]+=ms;count++;totalMs+=ms;return true;
+  }
+  public void addWithBudget(double ms,long periodNs){
+   if(!record(ms))return;
+   if(periodNs>0){budgetedCount++;if(FrameBudget.exceeds(ms,periodNs,1.5))longFrames++;if(FrameBudget.exceeds(ms,periodNs,3))bigLongFrames++;}
+  }
+  public void add(double ms,double targetFps,boolean recordedLong,boolean recordedBig){
+   if(!record(ms))return;
+   if(Double.isFinite(targetFps)&&targetFps>0){budgetedCount++;double budget=1000/targetFps;if(ms>1.5*budget)longFrames++;if(ms>3*budget)bigLongFrames++;}
    else{if(recordedLong)longFrames++;if(recordedBig)bigLongFrames++;}
   }
   public double averageFps(){return count>0&&totalMs>0?1000*count/totalMs:Double.NaN;}
