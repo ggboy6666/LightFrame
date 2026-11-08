@@ -186,7 +186,7 @@ public final class CoreSampler implements Closeable {
  }
  private JSONObject collect(JSONObject req)throws Exception{
   String op=req.optString("op","sample");JSONObject cfg=req.optJSONObject("config");if(cfg==null)cfg=new JSONObject();JSONObject o=new JSONObject();long now=System.nanoTime();o.put("uid",Process.myUid());o.put("nowNs",now);
-  if(op.equals("suspend")){gpuTrace.suspend();lastGpuTrace=null;gpuWorkStarted=false;return o;}
+  if(op.equals("suspend")){gpuTrace.suspend();lastGpuTrace=null;gpuWorkStarted=false;lastCpu=null;lastNet=null;lastNetNs=0;return o;}
   if(op.equals("layers")){JSONArray a=new JSONArray();for(String l:layerList())a.put(l);o.put("layers",a);return o;}
   if(req.optBoolean("hardware",true)||op.equals("diagnose")){
    long[] cpu=Numbers.cpu(read("/proc/stat"));put(o,"cpuPct",Numbers.cpuPct(lastCpu,cpu));lastCpu=cpu;

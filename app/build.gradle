@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'com.lightframe.monitor'
     compileSdk 35
-    defaultConfig { applicationId 'com.lightframe.monitor'; minSdk 26; targetSdk 35; versionCode 9; versionName '1.0.0' }
+    defaultConfig { applicationId 'com.lightframe.monitor'; minSdk 26; targetSdk 35; versionCode 10; versionName '1.0.1' }
     flavorDimensions 'edition'
     productFlavors { full { dimension 'edition' }; lite { dimension 'edition'; applicationIdSuffix '.lite' } }
     sourceSets { full.java.srcDir "$buildDir/generated/lightframe/full"; lite.java.srcDir "$buildDir/generated/lightframe/lite" }

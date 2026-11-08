@@ -1,7 +1,7 @@
 package com.lightframe.monitor;
 import android.content.*;import org.json.*;import java.util.*;
 public final class Config {
- public static final String VERSION="1.0.0";public static final int VERSION_CODE=9;
+ public static final String VERSION="1.0.1";public static final int VERSION_CODE=10;
  public static final String[] METRICS={"fps","frameMs","cpuPct","gpuPct","gpuMHz","cpuC","gpuC","socC","batteryC","powerW","currentMA","batteryPct","voltageMV","ramUsedMB","ramTotalMB","rxKBs","txKBs","monitorCpuPct","monitorRssMB","hardwareAgeMs","temperatureAgeMs","cycleCostMs","previousCycleCostMs","previousRecordWriteCostMs"};
  public static final String[] LABELS={"FPS","帧时间","CPU 使用率（系统）","GPU 负载","GPU 频率","CPU 温度","GPU 温度","SoC 温度","电池温度","电池侧功率","电流","电池电量","电池电压","RAM 已用（系统）","RAM 总量","下载","上传","轻帧 CPU（单核当量）","轻帧 RSS","硬件数据距今","温度数据距今","采集请求耗时","上一轮总耗时","上一轮记录处理耗时"};
  public static final String[] UNITS={"fps","ms","%","%","MHz","°C","°C","°C","°C","W","mA","%","mV","MB","MB","KB/s","KB/s","%","MB","ms","ms","ms","ms","ms"};
